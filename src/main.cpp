@@ -27,6 +27,7 @@
 #include "nvhttp.h"
 #include "process.h"
 #include "system_tray.h"
+#include "thread.h"
 #include "upnp.h"
 #include "video.h"
 
@@ -270,7 +271,7 @@ int main(int argc, char *argv[]) {
   std::promise<void> session_monitor_join_thread_promise;
   auto session_monitor_join_thread_future = session_monitor_join_thread_promise.get_future();
 
-  std::jthread session_monitor_thread([&]() {
+  util::jthread_t session_monitor_thread([&]() {
     platf::set_thread_name("session_monitor");
     session_monitor_join_thread_promise.set_value_at_thread_exit();
 
@@ -437,9 +438,9 @@ int main(int argc, char *argv[]) {
     return lifetime::desired_exit_code;
   }
 
-  std::jthread httpThread {nvhttp::start};
-  std::jthread configThread {confighttp::start};
-  std::jthread rtspThread {rtsp_stream::start};
+  util::jthread_t httpThread {nvhttp::start};
+  util::jthread_t configThread {confighttp::start};
+  util::jthread_t rtspThread {rtsp_stream::start};
 
 #ifdef _WIN32
   // If we're using the default port and GameStream is enabled, warn the user

@@ -42,6 +42,7 @@
 #include "platform/common.h"
 #include "process.h"
 #include "rtsp.h"
+#include "thread.h"
 #include "utility.h"
 #include "uuid.h"
 
@@ -1845,7 +1846,7 @@ namespace confighttp {
         return;
       }
     };
-    std::jthread tcp {accept_and_run, &server};
+    util::jthread_t tcp {accept_and_run, &server};
 
     // Wait for any event
     shutdown_event->view();

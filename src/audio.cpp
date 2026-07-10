@@ -14,6 +14,7 @@
 #include "globals.h"
 #include "logging.h"
 #include "platform/common.h"
+#include "thread.h"
 #include "thread_safe.h"
 #include "utility.h"
 
@@ -234,7 +235,7 @@ namespace audio {
     platf::adjust_thread_priority(platf::thread_priority_e::critical);
 
     auto samples = std::make_shared<sample_queue_t::element_type>(30);
-    std::jthread thread {encodeThread, samples, config, channel_data};
+    util::jthread_t thread {encodeThread, samples, config, channel_data};
 
     auto fg = util::fail_guard([&]() {
       samples->stop();

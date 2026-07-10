@@ -18,6 +18,7 @@
 #include "nvhttp.h"
 #include "rtsp.h"
 #include "stream.h"
+#include "thread.h"
 #include "upnp.h"
 #include "utility.h"
 
@@ -94,7 +95,7 @@ namespace upnp {
       }
 
       // Start the mapping thread
-      upnp_thread = std::jthread {&deinit_t::upnp_thread_proc, this};
+      upnp_thread = util::jthread_t {&deinit_t::upnp_thread_proc, this};
     }
 
     /**
@@ -373,7 +374,7 @@ namespace upnp {
     }
 
     std::vector<mapping_t> mappings;  ///< Port mappings Sunshine should keep registered with the gateway.
-    std::jthread upnp_thread;  ///< Worker thread that refreshes mappings until shutdown.
+    util::jthread_t upnp_thread;  ///< Worker thread that refreshes mappings until shutdown.
   };
 
   /**

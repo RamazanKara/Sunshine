@@ -10,6 +10,7 @@
 // local includes
 #include "platform/common.h"
 #include "task_pool.h"
+#include "thread.h"
 
 namespace thread_pool_util {
   /**
@@ -23,7 +24,7 @@ namespace thread_pool_util {
     typedef TaskPool::__task __task;
 
   private:
-    std::vector<std::jthread> _thread;
+    std::vector<util::jthread_t> _thread;
 
     std::condition_variable _cv;
     std::mutex _lock;
@@ -44,7 +45,7 @@ namespace thread_pool_util {
         _thread(threads),
         _continue {true} {
       for (auto &t : _thread) {
-        t = std::jthread(&ThreadPool::_main, this);
+        t = util::jthread_t(&ThreadPool::_main, this);
       }
     }
 
@@ -113,7 +114,7 @@ namespace thread_pool_util {
       _thread.resize(threads);
 
       for (auto &t : _thread) {
-        t = std::jthread(&ThreadPool::_main, this);
+        t = util::jthread_t(&ThreadPool::_main, this);
       }
     }
 

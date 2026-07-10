@@ -32,6 +32,7 @@
 #include "process.h"
 #include "rtsp.h"
 #include "system_tray.h"
+#include "thread.h"
 #include "utility.h"
 #include "uuid.h"
 #include "video.h"
@@ -1401,8 +1402,8 @@ namespace nvhttp {
         return;
       }
     };
-    std::jthread ssl {accept_and_run, &https_server};
-    std::jthread tcp {accept_and_run, &http_server};
+    util::jthread_t ssl {accept_and_run, &https_server};
+    util::jthread_t tcp {accept_and_run, &http_server};
 
     // Wait for any event
     shutdown_event->view();

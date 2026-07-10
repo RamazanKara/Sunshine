@@ -93,7 +93,7 @@ class ConfigHttpTest: public BaseTest {  // NOSONAR(cpp:S3656) - protected membe
 protected:
   std::unique_ptr<SimpleWeb::Server<SimpleWeb::HTTPS>> server;
   std::unique_ptr<SimpleWeb::Client<SimpleWeb::HTTPS>> client;
-  std::jthread server_thread;
+  util::jthread_t server_thread;
   unsigned short port = 0;
 
   std::string saved_username;
@@ -310,7 +310,7 @@ protected:
     };
 
     // Start server
-    server_thread = std::jthread([this]() {
+    server_thread = util::jthread_t([this]() {
       server->start([this](const unsigned short assigned_port) {
         port = assigned_port;
       });

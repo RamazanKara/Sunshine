@@ -13,6 +13,7 @@
 #include "src/network.h"
 #include "src/nvhttp.h"
 #include "src/platform/common.h"
+#include "src/thread.h"
 
 using namespace std::literals;
 
@@ -42,7 +43,7 @@ namespace platf::publish {
        */
       deinit_t(DNSServiceRef serviceRef):
           unique_ptr(serviceRef) {
-        _thread = std::jthread {[serviceRef, &_stopRequested = std::as_const(_stopRequested)]() {
+        _thread = util::jthread_t {[serviceRef, &_stopRequested = std::as_const(_stopRequested)]() {
           platf::set_thread_name("publish::mdns");
           const auto socket = DNSServiceRefSockFD(serviceRef);
           while (!_stopRequested) {
@@ -74,7 +75,7 @@ namespace platf::publish {
       deinit_t &operator=(const deinit_t &) = delete;
 
     private:
-      std::jthread _thread;  ///< Thread for polling the mDNS service for a response.
+      util::jthread_t _thread;  ///< Thread for polling the mDNS service for a response.
       std::atomic<bool> _stopRequested = false;  ///< Whether to stop polling the mDNS service.
     };
 

@@ -30,6 +30,7 @@ extern "C" {
 #include "rtsp.h"
 #include "stream.h"
 #include "sync.h"
+#include "thread.h"
 #include "video.h"
 
 namespace asio = boost::asio;
@@ -1349,7 +1350,7 @@ namespace rtsp_stream {
       return;
     }
 
-    std::jthread rtsp_thread {[&shutdown_event] {
+    util::jthread_t rtsp_thread {[&shutdown_event] {
       platf::set_thread_name("rtsp::handler");
       auto broadcast_shutdown_event = mail::man->event<bool>(mail::broadcast_shutdown);
 

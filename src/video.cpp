@@ -29,6 +29,7 @@ extern "C" {
 #include "nvenc/nvenc_base.h"
 #include "platform/common.h"
 #include "sync.h"
+#include "thread.h"
 #include "video.h"
 
 #ifdef _WIN32
@@ -630,7 +631,7 @@ namespace video {
    */
   struct capture_thread_async_ctx_t {
     std::shared_ptr<safe::queue_t<capture_ctx_t>> capture_ctx_queue;  ///< Capture ctx queue.
-    std::jthread capture_thread;  ///< Capture thread.
+    util::jthread_t capture_thread;  ///< Capture thread.
 
     safe::signal_t reinit_event;  ///< Reinit event.
     const encoder_t *encoder_p;  ///< Encoder p.
@@ -2354,7 +2355,7 @@ namespace video {
     // streaming to continue without requiring a full restart of Sunshine.
     auto fail_guard = util::fail_guard([&encoder, &session] {
       if (encoder.flags & ASYNC_TEARDOWN) {
-        std::jthread encoder_teardown_thread {[session = std::move(session)]() mutable {
+        util::jthread_t encoder_teardown_thread {[session = std::move(session)]() mutable {
           BOOST_LOG(info) << "Starting async encoder teardown";
           session.reset();
           BOOST_LOG(info) << "Async encoder teardown complete";
@@ -3593,7 +3594,7 @@ namespace video {
 
     capture_thread_ctx.capture_ctx_queue = std::make_shared<safe::queue_t<capture_ctx_t>>(30);
 
-    capture_thread_ctx.capture_thread = std::jthread {
+    capture_thread_ctx.capture_thread = util::jthread_t {
       captureThread,
       capture_thread_ctx.capture_ctx_queue,
       std::ref(capture_thread_ctx.display_wp),
@@ -3617,7 +3618,7 @@ namespace video {
    * @brief Start capture sync.
    */
   int start_capture_sync(capture_thread_sync_ctx_t &ctx) {
-    std::jthread {&captureThreadSync}.detach();
+    util::jthread_t {&captureThreadSync}.detach();
     return 0;
   }
 

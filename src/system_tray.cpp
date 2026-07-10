@@ -68,6 +68,7 @@
   #include "platform/common.h"
   #include "process.h"
   #include "src/entry_handler.h"
+  #include "thread.h"
 
 using namespace std::literals;
 
@@ -445,7 +446,7 @@ namespace system_tray {
 
   int init_tray_threaded() {
     try {
-      auto tray_thread = std::jthread(tray_thread_worker);
+      auto tray_thread = util::jthread_t(tray_thread_worker);
 
       // The tray thread doesn't require strong lifetime management.
       // It will exit asynchronously when tray_exit() is called.
