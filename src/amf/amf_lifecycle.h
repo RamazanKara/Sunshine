@@ -49,10 +49,65 @@ namespace amf::lifecycle {
     return mode >= 4 && mode <= 6;  // QVBR, HQVBR, HQCBR
   }
 
+  /**
+   * @brief Check whether the selected rate-control mode supports adaptive quantization.
+   *
+   * @param rate_control Requested AMF rate-control mode, or no value for the driver default.
+   * @return False only for AMF's constant-QP mode.
+   */
+  inline bool rate_control_supports_adaptive_quantization(const std::optional<int> &rate_control) noexcept {
+    // All three AMF encoders use zero for CONSTANT_QP. AMD documents VBAQ/CAQ
+    // as incompatible with CQP, so an enabled-by-default AQ setting must not turn
+    // an otherwise valid CQP request into a driver-dependent configuration.
+    return !rate_control || *rate_control != 0;
+  }
+
   // AMD documents a lookahead depth of one for the ultra-low-latency usage
   // preset. Keep native streaming on that bounded pipeline instead of inheriting
   // the 11-frame default used by transcoding/high-quality presets.
   inline constexpr int low_latency_preanalysis_lookahead_depth = 1;  ///< ULL PreAnalysis depth documented by AMD.
+
+  // Native encoders can retain several inputs before the first output even
+  // without B-frames or PreAnalysis. Three surfaces proved too small on current
+  // Radeon drivers: once every wrapper was retained, the host could no longer
+  // submit the input needed to advance the VCN queue. Keep two transit surfaces
+  // beyond AMF's configured queue and additional room for PA lookahead. Production
+  // can grow lazily to AMF's documented maximum queue plus that transit headroom.
+  inline constexpr std::size_t minimum_input_surface_count = 4;  ///< Smallest direct-render pool.
+  inline constexpr std::size_t input_surface_transit_count = 2;  ///< Headroom beyond AMF's input queue.
+  inline constexpr std::size_t default_amf_input_queue_size = 16;  ///< Documented AMF driver default.
+  inline constexpr std::size_t maximum_amf_input_queue_size = 32;  ///< Largest AMF queue accepted here.
+  inline constexpr std::size_t maximum_input_surface_count =
+    maximum_amf_input_queue_size + input_surface_transit_count;  ///< Maximum lazily allocated pool.
+
+  /**
+   * @brief Compute the minimum surface pool required by PreAnalysis lookahead.
+   *
+   * @param lookahead_depth Number of frames retained for future-frame analysis.
+   * @return Bounded number of direct-render surfaces.
+   */
+  inline constexpr std::size_t input_surface_count_for_lookahead(int lookahead_depth) noexcept {
+    const auto requested = minimum_input_surface_count +
+                           static_cast<std::size_t>(std::max(0, lookahead_depth)) * 2;
+    return std::clamp(requested, minimum_input_surface_count, maximum_input_surface_count);
+  }
+
+  /**
+   * @brief Compute a surface pool that covers AMF's queue and lookahead pipeline.
+   *
+   * @param input_queue_size Applied AMF input queue size.
+   * @param lookahead_depth Number of frames retained for future-frame analysis.
+   * @return Bounded number of direct-render surfaces.
+   */
+  inline constexpr std::size_t input_surface_count_for_pipeline(int input_queue_size,
+                                                                 int lookahead_depth) noexcept {
+    const auto queue_depth = std::clamp<std::size_t>(
+      static_cast<std::size_t>(std::max(1, input_queue_size)),
+      1,
+      maximum_amf_input_queue_size);
+    const auto queue_requirement = queue_depth + input_surface_transit_count;
+    return std::max(queue_requirement, input_surface_count_for_lookahead(lookahead_depth));
+  }
 
   /**
    * @brief Resolved PreAnalysis state for one encoder configuration.
@@ -121,12 +176,100 @@ namespace amf::lifecycle {
   /**
    * @brief Determine whether delayed output is expected after accepted inputs.
    *
-   * @param accepted_without_output Accepted input count since the last output.
+   * @param accepted_input_count Total accepted input count.
    * @param lookahead_depth Configured lookahead depth.
    * @return True once the encoder has more inputs than its lookahead retains.
    */
-  inline bool delayed_output_is_expected(int accepted_without_output, int lookahead_depth) noexcept {
-    return accepted_without_output > std::max(0, lookahead_depth);
+  inline bool delayed_output_is_expected(uint64_t accepted_input_count, int lookahead_depth) noexcept {
+    return accepted_input_count > static_cast<uint64_t>(std::max(0, lookahead_depth));
+  }
+
+  /**
+   * @brief Decide whether a no-output query may safely disarm the output pump.
+   *
+   * @param queried_through_input Accepted-input generation observed before QueryOutput.
+   * @param accepted_input_count Current accepted-input generation.
+   * @param drain_requested Whether final draining is active.
+   * @param active_poll_waiters Number of encode-side polling leases.
+   * @return True only when no newer submission, waiter, or drain needs polling.
+   */
+  inline constexpr bool should_disarm_output_poll(uint64_t queried_through_input,
+                                                  uint64_t accepted_input_count,
+                                                  bool drain_requested,
+                                                  std::size_t active_poll_waiters) noexcept {
+    // A no-data QueryOutput result only describes that call. It does not guarantee
+    // that an already-submitted hardware job cannot complete a moment later. A
+    // bounded encode-side waiter therefore owns a polling lease; disarming
+    // underneath that waiter strands the completion until the next input.
+    return !drain_requested && active_poll_waiters == 0 &&
+           queried_through_input == accepted_input_count;
+  }
+
+  /**
+   * @brief Compute the bounded output-polling lease for one encode call.
+   *
+   * @param framerate Negotiated stream framerate.
+   * @return A duration below one frame period, clamped to 1-32 milliseconds.
+   */
+  inline constexpr std::chrono::milliseconds output_coalesce_budget(int framerate) noexcept {
+    const auto frame_period = framerate > 0 ?
+                                std::chrono::milliseconds((1000 + framerate - 1) / framerate) :
+                                std::chrono::milliseconds(17);
+    return std::clamp(
+      frame_period > std::chrono::milliseconds(1) ?
+        frame_period - std::chrono::milliseconds(1) :
+        std::chrono::milliseconds(1),
+      std::chrono::milliseconds(1),
+      std::chrono::milliseconds(32));
+  }
+
+  /**
+   * @brief Decide whether repeated submit backpressure requires encoder reinitialization.
+   *
+   * @param consecutive_exhaustions Consecutive bounded-retry exhaustions.
+   * @param failure_threshold Framerate-derived exhaustion threshold.
+   * @param sequence_start_known Whether a backpressure start timestamp is available.
+   * @param time_since_sequence_start Duration of the current backpressure sequence.
+   * @return True once either the count or wall-time watchdog expires.
+   */
+  inline bool submit_backpressure_requires_reinit(
+    int consecutive_exhaustions,
+    int failure_threshold,
+    bool sequence_start_known,
+    std::chrono::steady_clock::duration time_since_sequence_start) noexcept {
+    return consecutive_exhaustions >= std::max(1, failure_threshold) ||
+           (sequence_start_known && time_since_sequence_start >= std::chrono::seconds(2));
+  }
+
+  /**
+   * @brief Determine whether asynchronous output caught up enough for this call.
+   *
+   * @param submitted_frame_index Current submitted frame index.
+   * @param lookahead_depth Configured PreAnalysis lookahead depth.
+   * @param completed_before_submission Completion count before submission.
+   * @param completed_after_submission Current completion count.
+   * @param last_completed_frame_index Highest completed frame index.
+   * @return True when the current frame completed, or any new PA output arrived.
+   */
+  inline constexpr bool output_coalesce_target_reached(uint64_t submitted_frame_index,
+                                                        int lookahead_depth,
+                                                        uint64_t completed_before_submission,
+                                                        uint64_t completed_after_submission,
+                                                        uint64_t last_completed_frame_index) noexcept {
+    // Without lookahead, accepting any older completion makes a one-frame backlog
+    // permanent: every later call wakes on its predecessor and returns before its
+    // own output is ready. Catch all the way up to this submission. A lookahead
+    // encoder intentionally cannot emit the newest input yet, so any new output is
+    // the correct bounded-progress target there.
+    if (lookahead_depth <= 0) {
+      return completed_after_submission > completed_before_submission &&
+             last_completed_frame_index >= submitted_frame_index;
+    }
+
+    // AMF does not promise one output per input, so an absolute accepted-output
+    // count can retain permanent debt after a legitimate skipped frame. For PA,
+    // any completion newer than the pre-submission snapshot is bounded progress.
+    return completed_after_submission > completed_before_submission;
   }
 
   /**
@@ -149,22 +292,25 @@ namespace amf::lifecycle {
    * @param slots Surface ring.
    * @param source_slot Previously rendered source slot.
    * @param next_slot Preferred rotation start.
+   * @param active_slot_count Number of currently allocated slots.
    * @return Free slot index, or no value when every surface is AMF-owned.
    */
   template<typename Slot, std::size_t SlotCount>
   std::optional<std::size_t> select_repeat_surface(
     const std::array<Slot, SlotCount> &slots,
     std::size_t source_slot,
-    std::size_t next_slot) noexcept {
+    std::size_t next_slot,
+    std::size_t active_slot_count = SlotCount) noexcept {
     static_assert(SlotCount > 0);
-    if (source_slot >= SlotCount) {
+    const auto bounded_slot_count = std::clamp<std::size_t>(active_slot_count, 1, SlotCount);
+    if (source_slot >= bounded_slot_count) {
       return std::nullopt;
     }
     if (slots[source_slot].state == input_surface_state_e::free) {
       return source_slot;
     }
-    for (std::size_t offset = 0; offset < SlotCount; ++offset) {
-      const auto candidate = (next_slot + offset) % SlotCount;
+    for (std::size_t offset = 0; offset < bounded_slot_count; ++offset) {
+      const auto candidate = (next_slot + offset) % bounded_slot_count;
       if (slots[candidate].state == input_surface_state_e::free) {
         return candidate;
       }

@@ -2859,9 +2859,9 @@ as a compatibility fallback when a native session cannot initialize.
     <tr>
         <td>Description</td>
         <td colspan="2">
-            PreAnalysis can increase encoding quality at the cost of latency. Native QVBR, HQVBR, and HQCBR
-            always use a one-frame lookahead because AMD requires PreAnalysis for those rate-control modes.
-            @note{This option only applies when using amdvce [encoder](#encoder).}
+            PreAnalysis can increase encoding quality at the cost of latency. Native `amdvce` uses a one-frame
+            low-latency lookahead; it is enabled automatically by `qvbr`, `hqvbr`, and `hqcbr`. The setting is
+            also forwarded to `amdvce_legacy`.
         </td>
     </tr>
     <tr>
@@ -2972,16 +2972,21 @@ as a compatibility fallback when a native session cannot initialize.
     <tr>
         <td>Description</td>
         <td>
-            Native AMF input queue size from 1 to 32. A value of 0 leaves the property at the AMD driver default.
-            Smaller queues can reduce buffering but may reduce throughput or expose driver-specific instability.
+            Number of frames the native AMF encoder keeps queued for input. The default `4` keeps the hardware fed
+            with little queueing; `1` can starve some drivers, while larger values up to `32` trade latency for
+            additional headroom. A value of `0` leaves the property at the AMD driver default.
             @note{This option only applies to the native amdvce [encoder](#encoder).}
         </td>
     </tr>
     <tr>
         <td>Default</td>
         <td>@code{}
-            0
+            4
             @endcode</td>
+    </tr>
+    <tr>
+        <td>Range</td>
+        <td>0-32 (0 = driver default)</td>
     </tr>
     <tr>
         <td>Example</td>

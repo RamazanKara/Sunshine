@@ -708,7 +708,7 @@ namespace config {
       (int) amd::coder_e::_auto,  // coder
       std::nullopt,  // QVBR quality (driver default)
       0,  // LTR frames (disabled)
-      0,  // input queue size (driver default)
+      4,  // input queue size (bounded streaming default)
       std::nullopt,  // Smart Access Video (driver default)
       std::nullopt,  // low-latency mode (driver default)
       std::nullopt,  // high-motion quality boost (driver default)
