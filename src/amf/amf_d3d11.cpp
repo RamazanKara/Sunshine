@@ -24,8 +24,9 @@
 
 namespace amf {
 
-  // AMF DLL function types
+  /// Function pointer type for the AMF runtime initialization entry point.
   typedef AMF_RESULT(AMF_CDECL_CALL *AMFInit_Fn)(amf_uint64 version, ::amf::AMFFactory **ppFactory);
+  /// Function pointer type for the AMF runtime version-query entry point.
   typedef AMF_RESULT(AMF_CDECL_CALL *AMFQueryVersion_Fn)(amf_uint64 *pVersion);
 
   amf_d3d11::amf_d3d11(ID3D11Device *d3d_device):

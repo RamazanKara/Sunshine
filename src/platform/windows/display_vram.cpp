@@ -2357,12 +2357,6 @@ namespace platf::dxgi {
     return device;
   }
 
-  /**
-   * @brief Create a native AMF device for this display.
-   *
-   * @param pix_fmt Native AMF input pixel format.
-   * @return Initialized platform AMF device, or nullptr on failure.
-   */
   std::unique_ptr<amf_encode_device_t> display_vram_t::make_amf_encode_device(pix_fmt_e pix_fmt) {
     auto device = std::make_unique<d3d_amf_encode_device_t>();
     if (!device->init_device(shared_from_this(), adapter.get(), pix_fmt)) {
