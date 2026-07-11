@@ -6,7 +6,9 @@
 #include <array>
 #include <atomic>
 #include <bitset>
+#include <future>
 #include <list>
+#include <map>
 #include <thread>
 
 // lib includes
@@ -23,6 +25,8 @@ extern "C" {
 #include "cbs.h"
 #include "config.h"
 #include "display_device.h"
+#include "amf/amf_encoder.h"
+#include "amf/amf_lifecycle.h"
 #include "globals.h"
 #include "input.h"
 #include "logging.h"
@@ -585,6 +589,175 @@ namespace video {
   };
 
   /**
+   * @brief Encode-session adapter for the native asynchronous AMF backend.
+   */
+  class amf_encode_session_t: public encode_session_t {
+  public:
+    /**
+     * @brief Construct a session around an initialized platform AMF device.
+     *
+     * @param encode_device Initialized platform AMF device.
+     */
+    explicit amf_encode_session_t(std::unique_ptr<platf::amf_encode_device_t> encode_device):
+        device(std::move(encode_device)) {
+    }
+
+    /**
+     * @brief Convert a captured image into the currently reserved AMF input surface.
+     *
+     * @param img Captured image.
+     * @return Zero on success.
+     */
+    int convert(platf::img_t &img) override {
+      return device ? device->convert(img) : -1;
+    }
+
+    /**
+     * @brief Latch an IDR request until AMF accepts the matching input.
+     */
+    void request_idr_frame() override {
+      force_idr = true;
+    }
+
+    /**
+     * @brief Preserve any latched IDR request until input acceptance.
+     */
+    void request_normal_frame() override {
+      // Keep an IDR request latched until AMF accepts the corresponding input.
+    }
+
+    /**
+     * @brief Request native AMF reference-frame invalidation.
+     *
+     * @param first_frame First invalid frame index.
+     * @param last_frame Last invalid frame index.
+     */
+    void invalidate_ref_frames(int64_t first_frame, int64_t last_frame) override {
+      if (!device || !device->amf ||
+          !device->amf->invalidate_ref_frames(first_frame, last_frame)) {
+        force_idr = true;
+      }
+    }
+
+    /**
+     * @brief Submit one input and collect every ready AMF output.
+     *
+     * @param frame_index Input frame index.
+     * @return Submission state and ready output frames.
+     */
+    amf::amf_encode_result encode_frames(uint64_t frame_index) {
+      if (!device || !device->amf) {
+        return {};
+      }
+
+      auto result = device->amf->encode_frame(frame_index, force_idr);
+      last_input_accepted = result.input_accepted;
+      if (result.input_accepted) {
+        force_idr = false;
+      }
+      return result;
+    }
+
+    /**
+     * @brief Collect output already accepted by AMF without new input.
+     *
+     * @param timeout Maximum wait for pump progress.
+     * @return Ready output frames and fatal state.
+     */
+    amf::amf_encode_result drain_frames(std::chrono::milliseconds timeout) {
+      return device && device->amf ? device->amf->drain_output(timeout) : amf::amf_encode_result {};
+    }
+
+    /**
+     * @brief Signal end of input to AMF.
+     *
+     * @return True when AMF accepted the drain request.
+     */
+    bool begin_drain() {
+      return device && device->amf && device->amf->begin_drain();
+    }
+
+    /**
+     * @brief Report whether AMF accepted the most recent input.
+     *
+     * @return Last input-acceptance state.
+     */
+    bool was_last_input_accepted() const {
+      return last_input_accepted;
+    }
+
+    /**
+     * @brief Validate and remember one emitted frame index.
+     *
+     * @param emitted Emitted frame index.
+     * @return True when the index is strictly monotonic.
+     */
+    bool note_emitted_index(uint64_t emitted) {
+      const bool monotonic = last_emitted_index < 0 || static_cast<int64_t>(emitted) > last_emitted_index;
+      last_emitted_index = static_cast<int64_t>(emitted);
+      return monotonic;
+    }
+
+    /**
+     * @brief Check whether an input frame has already produced output.
+     *
+     * @param frame_index Input frame index.
+     * @return True when that frame or a newer frame was emitted.
+     */
+    bool has_emitted_frame(uint64_t frame_index) const {
+      return last_emitted_index >= 0 && static_cast<uint64_t>(last_emitted_index) >= frame_index;
+    }
+
+    /**
+     * @brief Associate a capture timestamp with an accepted-or-pending input.
+     *
+     * @param frame_index Input frame index.
+     * @param frame_timestamp Capture timestamp.
+     */
+    void store_frame_timestamp(
+      uint64_t frame_index,
+      std::optional<std::chrono::steady_clock::time_point> frame_timestamp) {
+      pending_timestamps[frame_index] = frame_timestamp;
+      while (pending_timestamps.size() > 256) {
+        pending_timestamps.erase(pending_timestamps.begin());
+      }
+    }
+
+    /**
+     * @brief Remove and return the timestamp for an emitted frame.
+     *
+     * @param frame_index Emitted frame index.
+     * @return Stored capture timestamp.
+     */
+    std::optional<std::chrono::steady_clock::time_point> take_frame_timestamp(uint64_t frame_index) {
+      const auto it = pending_timestamps.find(frame_index);
+      if (it == pending_timestamps.end()) {
+        return std::nullopt;
+      }
+      auto timestamp = it->second;
+      pending_timestamps.erase(it);
+      return timestamp;
+    }
+
+    /**
+     * @brief Remove timestamp state for an input AMF rejected.
+     *
+     * @param frame_index Rejected input frame index.
+     */
+    void discard_frame_timestamp(uint64_t frame_index) {
+      pending_timestamps.erase(frame_index);
+    }
+
+  private:
+    std::unique_ptr<platf::amf_encode_device_t> device;
+    bool force_idr = false;
+    bool last_input_accepted = false;
+    int64_t last_emitted_index = -1;
+    std::map<uint64_t, std::optional<std::chrono::steady_clock::time_point>> pending_timestamps;
+  };
+
+
+  /**
    * @brief Context object used while synchronizing encode sessions.
    */
   struct sync_session_ctx_t {
@@ -929,10 +1102,56 @@ namespace video {
   };
 
   /**
-   * @brief Amdvce.
+   * @brief Native AMD AMF encoder with direct D3D11 input.
+   *
+   * The FFmpeg-backed path remains available as amdvce_legacy and as an
+   * automatic compatibility fallback when native session initialization fails.
    */
   encoder_t amdvce {
     "amdvce"sv,
+    std::make_unique<encoder_platform_formats_amf>(
+      platf::mem_type_e::dxgi,
+      platf::pix_fmt_e::nv12,
+      platf::pix_fmt_e::p010,
+      platf::pix_fmt_e::unknown,
+      platf::pix_fmt_e::unknown
+    ),
+    {
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      "av1_amf"s,
+    },
+    {
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      "hevc_amf"s,
+    },
+    {
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      "h264_amf"s,
+    },
+    PARALLEL_ENCODING | REF_FRAMES_INVALIDATION | ASYNC_TEARDOWN
+  };
+
+
+  /**
+   * @brief FFmpeg-backed AMD AMF compatibility encoder.
+   */
+  encoder_t amdvce_legacy {
+    "amdvce_legacy"sv,
     std::make_unique<encoder_platform_formats_avcodec>(
       AV_HWDEVICE_TYPE_D3D11VA,
       AV_HWDEVICE_TYPE_NONE,
@@ -954,9 +1173,18 @@ namespace video {
         {"log_to_dbg"s, []() {
            return config::sunshine.min_log_level < 2 ? 1 : 0;
          }},
-        {"preencode"s, &config::video.amd.amd_preanalysis},
+        {"preanalysis"s, []() {
+           return amf::lifecycle::rate_control_requires_preanalysis(
+                    config::video.amd.amd_rc_av1.value_or(-1)) ?
+                    1 :
+                    config::video.amd.amd_preanalysis.value_or(0);
+         }},
         {"quality"s, &config::video.amd.amd_quality_av1},
         {"rc"s, &config::video.amd.amd_rc_av1},
+        {"qvbr_quality_level"s, &config::video.amd.amd_qvbr_quality_level},
+        {"aq_mode"s, []() {
+           return config::video.amd.amd_vbaq.value_or(1) ? 1 : 0;
+         }},
         {"usage"s, &config::video.amd.amd_usage_av1},
         {"enforce_hrd"s, &config::video.amd.amd_enforce_hrd},
       },
@@ -980,9 +1208,15 @@ namespace video {
          }},
         {"gops_per_idr"s, 1},
         {"header_insertion_mode"s, "idr"s},
-        {"preencode"s, &config::video.amd.amd_preanalysis},
+        {"preanalysis"s, []() {
+           return amf::lifecycle::rate_control_requires_preanalysis(
+                    config::video.amd.amd_rc_hevc.value_or(-1)) ?
+                    1 :
+                    config::video.amd.amd_preanalysis.value_or(0);
+         }},
         {"quality"s, &config::video.amd.amd_quality_hevc},
         {"rc"s, &config::video.amd.amd_rc_hevc},
+        {"qvbr_quality_level"s, &config::video.amd.amd_qvbr_quality_level},
         {"usage"s, &config::video.amd.amd_usage_hevc},
         {"vbaq"s, &config::video.amd.amd_vbaq},
         {"enforce_hrd"s, &config::video.amd.amd_enforce_hrd},
@@ -1017,9 +1251,16 @@ namespace video {
         {"log_to_dbg"s, []() {
            return config::sunshine.min_log_level < 2 ? 1 : 0;
          }},
-        {"preencode"s, &config::video.amd.amd_preanalysis},
+        {"preanalysis"s, []() {
+           return amf::lifecycle::rate_control_requires_preanalysis(
+                    config::video.amd.amd_rc_h264.value_or(-1)) ?
+                    1 :
+                    config::video.amd.amd_preanalysis.value_or(0);
+         }},
         {"quality"s, &config::video.amd.amd_quality_h264},
         {"rc"s, &config::video.amd.amd_rc_h264},
+        {"qvbr_quality_level"s, &config::video.amd.amd_qvbr_quality_level},
+        {"coder"s, &config::video.amd.amd_coder},
         {"usage"s, &config::video.amd.amd_usage_h264},
         {"vbaq"s, &config::video.amd.amd_vbaq},
         {"enforce_hrd"s, &config::video.amd.amd_enforce_hrd},
@@ -1386,6 +1627,7 @@ namespace video {
 #ifdef _WIN32
     &quicksync,
     &amdvce,
+    &amdvce_legacy,
     &mediafoundation,
 #endif
 #if defined(__linux__) || defined(linux) || defined(__linux) || defined(__FreeBSD__)
@@ -1861,6 +2103,77 @@ namespace video {
   }
 
   /**
+   * @brief Convert ready native AMF frames into Sunshine packets.
+   *
+   * @param submitted_frame_nr Frame index associated with the current encode call.
+   * @param session Active native AMF session.
+   * @param encoded_frames Ready AMF frames in presentation order.
+   * @param packets Output packet queue.
+   * @param channel_data Protocol state attached to packets.
+   * @return Zero when every frame was delivered.
+   */
+  int deliver_amf_frames(
+    int64_t submitted_frame_nr,
+    amf_encode_session_t &session,
+    std::vector<amf::amf_encoded_frame> &encoded_frames,
+    safe::mail_raw_t::queue_t<packet_t> &packets,
+    void *channel_data
+  ) {
+    for (auto &encoded_frame : encoded_frames) {
+      if (encoded_frame.fatal || encoded_frame.data.empty()) {
+        BOOST_LOG(error) << "AMF returned an invalid encoded frame";
+        return -1;
+      }
+      if (!session.note_emitted_index(encoded_frame.frame_index)) {
+        BOOST_LOG(error) << "AMF output frame index regressed or repeated: submitted="
+                         << submitted_frame_nr << " emitted=" << encoded_frame.frame_index;
+        return -1;
+      }
+
+      auto packet = std::make_unique<packet_raw_generic>(
+        std::move(encoded_frame.data),
+        encoded_frame.frame_index,
+        encoded_frame.idr);
+      packet->channel_data = channel_data;
+      packet->after_ref_frame_invalidation = encoded_frame.after_ref_frame_invalidation;
+      packet->frame_timestamp = session.take_frame_timestamp(encoded_frame.frame_index);
+      packets->raise(std::move(packet));
+    }
+    return 0;
+  }
+
+  /**
+   * @brief Submit one frame to native AMF and deliver every ready output.
+   *
+   * @param frame_nr Input frame index.
+   * @param session Active native AMF session.
+   * @param packets Output packet queue.
+   * @param channel_data Protocol state attached to packets.
+   * @param frame_timestamp Capture timestamp.
+   * @return Zero on success.
+   */
+  int encode_amf(
+    int64_t frame_nr,
+    amf_encode_session_t &session,
+    safe::mail_raw_t::queue_t<packet_t> &packets,
+    void *channel_data,
+    std::optional<std::chrono::steady_clock::time_point> frame_timestamp
+  ) {
+    session.store_frame_timestamp(frame_nr, frame_timestamp);
+    auto result = session.encode_frames(static_cast<uint64_t>(frame_nr));
+    if (!result.input_accepted) {
+      session.discard_frame_timestamp(frame_nr);
+    }
+    if (result.fatal ||
+        std::any_of(result.frames.begin(), result.frames.end(), [](const auto &frame) { return frame.fatal; })) {
+      BOOST_LOG(error) << "AMF entered an unrecoverable state";
+      return -1;
+    }
+    return deliver_amf_frames(frame_nr, session, result.frames, packets, channel_data);
+  }
+
+
+  /**
    * @brief Encode one captured frame and queue packets for transmission.
    *
    * @param frame_nr Frame nr.
@@ -1875,6 +2188,8 @@ namespace video {
       return encode_avcodec(frame_nr, *avcodec_session, packets, channel_data, frame_timestamp);
     } else if (auto nvenc_session = dynamic_cast<nvenc_encode_session_t *>(&session)) {
       return encode_nvenc(frame_nr, *nvenc_session, packets, channel_data, frame_timestamp);
+    } else if (auto amf_session = dynamic_cast<amf_encode_session_t *>(&session)) {
+      return encode_amf(frame_nr, *amf_session, packets, channel_data, frame_timestamp);
     }
 
     return -1;
@@ -2295,6 +2610,84 @@ namespace video {
   }
 
   /**
+   * @brief Initialize a native AMF session behind a bounded driver watchdog.
+   *
+   * @param disp Active display used to obtain HDR metadata.
+   * @param client_config Negotiated stream configuration.
+   * @param encode_device Platform AMF device.
+   * @return Initialized native AMF session, or nullptr on failure or timeout.
+   */
+  std::unique_ptr<amf_encode_session_t> make_amf_encode_session(platf::display_t *disp, const config_t &client_config, std::unique_ptr<platf::amf_encode_device_t> encode_device) {
+    // Native AMF can wedge inside Init/Terminate on a damaged driver. Run the
+    // entire initialization attempt on an owning worker so probes, failed init,
+    // and real-session fallback all regain control within one watchdog interval.
+    std::promise<std::unique_ptr<platf::amf_encode_device_t>> initialized_promise;
+    auto initialized_future = initialized_promise.get_future();
+    const auto colorspace = encode_device->colorspace;
+    std::thread initialization_thread {
+      [encode_device = std::move(encode_device), client_config, colorspace, initialized_promise = std::move(initialized_promise)]() mutable {
+        try {
+          if (!encode_device->init_encoder(client_config, colorspace)) {
+            // Signal failure before destroying the device: if destruction wedges,
+            // the caller can detach this worker and proceed to legacy AMF.
+            initialized_promise.set_value(nullptr);
+            return;
+          }
+          initialized_promise.set_value(std::move(encode_device));
+        } catch (...) {
+          try {
+            initialized_promise.set_value(nullptr);
+          } catch (...) {
+            // The caller may already have abandoned a timed-out initialization.
+          }
+        }
+      }
+    };
+
+    if (initialized_future.wait_for(5s) != std::future_status::ready) {
+      BOOST_LOG(error) << "AMF: native encoder initialization exceeded 5 seconds; abandoning it"sv;
+      initialization_thread.detach();
+      return nullptr;
+    }
+
+    try {
+      encode_device = initialized_future.get();
+    } catch (...) {
+      BOOST_LOG(error) << "AMF: native encoder initialization worker failed unexpectedly"sv;
+      initialization_thread.detach();
+      return nullptr;
+    }
+    if (!encode_device) {
+      initialization_thread.detach();
+      return nullptr;
+    }
+    initialization_thread.join();
+
+    // Forward HDR mastering metadata to the AMF bitstream when streaming HDR.
+    if (colorspace_is_hdr(encode_device->colorspace) && encode_device->amf) {
+      SS_HDR_METADATA hdr_metadata;
+      if (disp->get_hdr_metadata(hdr_metadata)) {
+        amf::amf_hdr_metadata amf_metadata;
+        for (int i = 0; i < 3; i++) {
+          amf_metadata.displayPrimaries[i].x = hdr_metadata.displayPrimaries[i].x;
+          amf_metadata.displayPrimaries[i].y = hdr_metadata.displayPrimaries[i].y;
+        }
+        amf_metadata.whitePoint.x = hdr_metadata.whitePoint.x;
+        amf_metadata.whitePoint.y = hdr_metadata.whitePoint.y;
+        amf_metadata.maxDisplayLuminance = hdr_metadata.maxDisplayLuminance;
+        amf_metadata.minDisplayLuminance = hdr_metadata.minDisplayLuminance;
+        amf_metadata.maxContentLightLevel = hdr_metadata.maxContentLightLevel;
+        amf_metadata.maxFrameAverageLightLevel = hdr_metadata.maxFrameAverageLightLevel;
+        if (!encode_device->amf->set_hdr_metadata(amf_metadata)) {
+          BOOST_LOG(warning) << "AMF: HDR stream will continue without mastering metadata"sv;
+        }
+      }
+    }
+
+    return std::make_unique<amf_encode_session_t>(std::move(encode_device));
+  }
+
+  /**
    * @brief Create encode session.
    *
    * @param disp Display connection or display handle.
@@ -2312,10 +2705,47 @@ namespace video {
     } else if (dynamic_cast<platf::nvenc_encode_device_t *>(encode_device.get())) {
       auto nvenc_encode_device = boost::dynamic_pointer_cast<platf::nvenc_encode_device_t>(std::move(encode_device));
       return make_nvenc_encode_session(config, std::move(nvenc_encode_device));
+    } else if (dynamic_cast<platf::amf_encode_device_t *>(encode_device.get())) {
+      auto amf_encode_device = boost::dynamic_pointer_cast<platf::amf_encode_device_t>(std::move(encode_device));
+      return make_amf_encode_session(disp, config, std::move(amf_encode_device));
     }
 
     return nullptr;
   }
+
+  /**
+   * @brief Destroy native AMF sessions behind a bounded driver watchdog.
+   *
+   * @param session Session to destroy.
+   * @param reason Diagnostic teardown context.
+   * @return True when teardown completed within the timeout.
+   */
+  bool destroy_encode_session_bounded(std::unique_ptr<encode_session_t> &session, std::string_view reason) {
+    if (!session) {
+      return true;
+    }
+    if (!dynamic_cast<amf_encode_session_t *>(session.get())) {
+      session.reset();
+      return true;
+    }
+
+    auto owned_session = std::move(session);
+    const bool completed = amf::lifecycle::run_with_timeout(
+      [owned_session = std::move(owned_session)]() mutable {
+        owned_session.reset();
+      },
+      5s);
+    if (!completed) {
+      BOOST_LOG(error) << "AMF: native " << reason << " teardown exceeded 5 seconds; abandoning that session"sv;
+    }
+    return completed;
+  }
+
+
+  std::unique_ptr<platf::encode_device_t> make_encode_device(
+    platf::display_t &disp,
+    const encoder_t &encoder,
+    const config_t &config);
 
   /**
    * @brief Run one encode loop for a display capture stream.
@@ -2341,7 +2771,20 @@ namespace video {
     const encoder_t &encoder,
     void *channel_data
   ) {
+    const encoder_t *session_encoder = &encoder;
     auto session = make_encode_session(disp.get(), encoder, config, disp->width, disp->height, std::move(encode_device));
+#ifdef _WIN32
+    if (!session && &encoder == &amdvce && config::video.encoder.empty()) {
+      BOOST_LOG(warning) << "AMF: native session failed; retrying with amdvce_legacy"sv;
+      auto legacy_device = make_encode_device(*disp, amdvce_legacy, config);
+      if (legacy_device) {
+        session = make_encode_session(disp.get(), amdvce_legacy, config, disp->width, disp->height, std::move(legacy_device));
+        if (session) {
+          session_encoder = &amdvce_legacy;
+        }
+      }
+    }
+#endif
     if (!session) {
       return;
     }
@@ -2352,8 +2795,8 @@ namespace video {
     // to restart encoding as soon as possible. For cases where the NVENC driver
     // hang occurs, this thread may probably never exit, but it will allow
     // streaming to continue without requiring a full restart of Sunshine.
-    auto fail_guard = util::fail_guard([&encoder, &session] {
-      if (encoder.flags & ASYNC_TEARDOWN) {
+    auto fail_guard = util::fail_guard([session_encoder, &session] {
+      if (session_encoder->flags & ASYNC_TEARDOWN) {
         std::thread encoder_teardown_thread {[session = std::move(session)]() mutable {
           BOOST_LOG(info) << "Starting async encoder teardown";
           session.reset();
@@ -2546,6 +2989,8 @@ namespace video {
       result = disp.make_avcodec_encode_device(pix_fmt);
     } else if (dynamic_cast<const encoder_platform_formats_nvenc *>(encoder.platform_formats.get())) {
       result = disp.make_nvenc_encode_device(pix_fmt);
+    } else if (dynamic_cast<const encoder_platform_formats_amf *>(encoder.platform_formats.get())) {
+      result = disp.make_amf_encode_device(pix_fmt);
     }
 
     if (result) {
@@ -2949,20 +3394,31 @@ namespace video {
     if (!session) {
       return -1;
     }
+    auto bounded_teardown = util::fail_guard([&]() {
+      destroy_encode_session_bounded(session, "probe"sv);
+    });
 
-    {
-      // Image buffers are large, so we use a separate scope to free it immediately after convert()
-      auto img = disp->alloc_img();
-      if (!img || disp->dummy_img(img.get()) || session->convert(*img)) {
-        return -1;
-      }
+    // Keep the image alive while a PreAnalysis encoder primes its lookahead.
+    auto img = disp->alloc_img();
+    if (!img || disp->dummy_img(img.get()) || session->convert(*img)) {
+      return -1;
     }
 
     session->request_idr_frame();
 
-    auto packets = mail::man->queue<packet_t>(mail::video_packets);
-    while (!packets->peek()) {
-      if (encode(1, *session, packets, nullptr, {})) {
+    auto probe_mail = std::make_shared<safe::mail_raw_t>();
+    auto packets = probe_mail->queue<packet_t>(mail::video_packets);
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    constexpr int max_probe_submissions = 64;
+    for (int attempt = 0; !packets->peek(); ++attempt) {
+      if (attempt >= max_probe_submissions || std::chrono::steady_clock::now() >= deadline) {
+        BOOST_LOG(error) << "Encoder probe produced no packet within its bounded submission window"sv;
+        return -1;
+      }
+      if (attempt > 0 && dynamic_cast<amf_encode_session_t *>(session.get()) && session->convert(*img)) {
+        return -1;
+      }
+      if (encode(static_cast<int64_t>(attempt) + 1, *session, packets, nullptr, {})) {
         return -1;
       }
     }

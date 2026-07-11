@@ -72,6 +72,10 @@ namespace nvenc {
   class nvenc_base;
 }
 
+namespace amf {
+  class amf_encoder;
+}
+
 namespace platf {
   // Limited by bits in activeGamepadMask
   constexpr auto MAX_GAMEPADS = 16;  ///< Maximum number of simultaneously tracked gamepads.
@@ -642,6 +646,22 @@ namespace platf {
   };
 
   /**
+   * @brief Native AMF-backed encode device state.
+   */
+  struct amf_encode_device_t: encode_device_t {
+    /**
+     * @brief Initialize native AMF for the negotiated stream.
+     *
+     * @param client_config Client stream configuration.
+     * @param colorspace Colorimetry used for conversion and bitstream metadata.
+     * @return True when AMF initialized successfully.
+     */
+    virtual bool init_encoder(const video::config_t &client_config, const video::sunshine_colorspace_t &colorspace) = 0;
+
+    amf::amf_encoder *amf = nullptr;  ///< AMF encoder instance owned by the encode device.
+  };
+
+  /**
    * @brief Enumerates supported capture options.
    */
   enum class capture_e : int {
@@ -723,6 +743,16 @@ namespace platf {
      * @return Constructed NVENC encode device object.
      */
     virtual std::unique_ptr<nvenc_encode_device_t> make_nvenc_encode_device(pix_fmt_e pix_fmt) {
+      return nullptr;
+    }
+
+    /**
+     * @brief Create native AMF encode device.
+     *
+     * @param pix_fmt Sunshine pixel format to convert or allocate for.
+     * @return Constructed native AMF encode device object.
+     */
+    virtual std::unique_ptr<amf_encode_device_t> make_amf_encode_device(pix_fmt_e pix_fmt) {
       return nullptr;
     }
 
