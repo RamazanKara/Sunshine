@@ -220,7 +220,6 @@ namespace video {
     }
   };
 
-
   /**
    * @brief Encoder name and feature flags advertised by Sunshine.
    */

@@ -656,7 +656,6 @@ namespace platf::dxgi {
       return 0;
     }
 
-
     /**
      * @brief Create D3D11 output textures, views, and shaders for frame conversion.
      *
@@ -1439,7 +1438,8 @@ namespace platf::dxgi {
 
       const auto preanalysis_plan = ::amf::lifecycle::resolve_preanalysis(
         amf_cfg.rc_mode,
-        config::video.amd.amd_preanalysis);
+        config::video.amd.amd_preanalysis
+      );
       amf_cfg.preanalysis = preanalysis_plan.enabled ? 1 : 0;
       if (preanalysis_plan.enabled) {
         amf_cfg.pa_lookahead_depth = preanalysis_plan.lookahead_depth;
@@ -1483,7 +1483,8 @@ namespace platf::dxgi {
       return base.init_output(
                static_cast<ID3D11Texture2D *>(amf_d3d->get_input_texture()),
                client_config.width,
-               client_config.height) == 0;
+               client_config.height
+             ) == 0;
     }
 
     /**
@@ -1512,7 +1513,6 @@ namespace platf::dxgi {
     platf::pix_fmt_e buffer_format = platf::pix_fmt_e::unknown;
     bool registered_active_encoder = false;
   };
-
 
   /**
    * @brief Set cursor texture.

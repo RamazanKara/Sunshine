@@ -22,11 +22,11 @@ extern "C" {
 }
 
 // local includes
+#include "amf/amf_encoder.h"
+#include "amf/amf_lifecycle.h"
 #include "cbs.h"
 #include "config.h"
 #include "display_device.h"
-#include "amf/amf_encoder.h"
-#include "amf/amf_lifecycle.h"
 #include "globals.h"
 #include "input.h"
 #include "logging.h"
@@ -716,7 +716,8 @@ namespace video {
      */
     void store_frame_timestamp(
       uint64_t frame_index,
-      std::optional<std::chrono::steady_clock::time_point> frame_timestamp) {
+      std::optional<std::chrono::steady_clock::time_point> frame_timestamp
+    ) {
       pending_timestamps[frame_index] = frame_timestamp;
       while (pending_timestamps.size() > 256) {
         pending_timestamps.erase(pending_timestamps.begin());
@@ -755,7 +756,6 @@ namespace video {
     int64_t last_emitted_index = -1;
     std::map<uint64_t, std::optional<std::chrono::steady_clock::time_point>> pending_timestamps;
   };
-
 
   /**
    * @brief Context object used while synchronizing encode sessions.
@@ -1146,7 +1146,6 @@ namespace video {
     PARALLEL_ENCODING | REF_FRAMES_INVALIDATION | ASYNC_TEARDOWN
   };
 
-
   /**
    * @brief FFmpeg-backed AMD AMF compatibility encoder.
    */
@@ -1176,8 +1175,11 @@ namespace video {
         {"preanalysis"s, []() {
            return amf::lifecycle::resolve_preanalysis(
                     config::video.amd.amd_rc_av1,
-                    config::video.amd.amd_preanalysis)
-             .enabled ? 1 : 0;
+                    config::video.amd.amd_preanalysis
+                  )
+                      .enabled ?
+                    1 :
+                    0;
          }},
         {"quality"s, &config::video.amd.amd_quality_av1},
         {"rc"s, &config::video.amd.amd_rc_av1},
@@ -1211,8 +1213,11 @@ namespace video {
         {"preanalysis"s, []() {
            return amf::lifecycle::resolve_preanalysis(
                     config::video.amd.amd_rc_hevc,
-                    config::video.amd.amd_preanalysis)
-             .enabled ? 1 : 0;
+                    config::video.amd.amd_preanalysis
+                  )
+                      .enabled ?
+                    1 :
+                    0;
          }},
         {"quality"s, &config::video.amd.amd_quality_hevc},
         {"rc"s, &config::video.amd.amd_rc_hevc},
@@ -1258,8 +1263,11 @@ namespace video {
         {"preanalysis"s, []() {
            return amf::lifecycle::resolve_preanalysis(
                     config::video.amd.amd_rc_h264,
-                    config::video.amd.amd_preanalysis)
-             .enabled ? 1 : 0;
+                    config::video.amd.amd_preanalysis
+                  )
+                      .enabled ?
+                    1 :
+                    0;
          }},
         {"quality"s, &config::video.amd.amd_quality_h264},
         {"rc"s, &config::video.amd.amd_rc_h264},
@@ -2141,7 +2149,8 @@ namespace video {
       auto packet = std::make_unique<packet_raw_generic>(
         std::move(encoded_frame.data),
         encoded_frame.frame_index,
-        encoded_frame.idr);
+        encoded_frame.idr
+      );
       packet->channel_data = channel_data;
       packet->after_ref_frame_invalidation = encoded_frame.after_ref_frame_invalidation;
       packet->frame_timestamp = session.take_frame_timestamp(encoded_frame.frame_index);
@@ -2173,13 +2182,14 @@ namespace video {
       session.discard_frame_timestamp(frame_nr);
     }
     if (result.fatal ||
-        std::any_of(result.frames.begin(), result.frames.end(), [](const auto &frame) { return frame.fatal; })) {
+        std::any_of(result.frames.begin(), result.frames.end(), [](const auto &frame) {
+          return frame.fatal;
+        })) {
       BOOST_LOG(error) << "AMF entered an unrecoverable state";
       return -1;
     }
     return deliver_amf_frames(frame_nr, session, result.frames, packets, channel_data);
   }
-
 
   /**
    * @brief Encode one captured frame and queue packets for transmission.
@@ -2742,18 +2752,19 @@ namespace video {
       [owned_session = std::move(owned_session)]() mutable {
         owned_session.reset();
       },
-      5s);
+      5s
+    );
     if (!completed) {
       BOOST_LOG(error) << "AMF: native " << reason << " teardown exceeded 5 seconds; abandoning that session"sv;
     }
     return completed;
   }
 
-
   std::unique_ptr<platf::encode_device_t> make_encode_device(
     platf::display_t &disp,
     const encoder_t &encoder,
-    const config_t &config);
+    const config_t &config
+  );
 
   /**
    * @brief Run one encode loop for a display capture stream.

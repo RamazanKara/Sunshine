@@ -337,8 +337,12 @@ namespace config {
      * @return One for enabled, zero for disabled, or no value for automatic.
      */
     std::optional<int> tristate_from_view(const std::string_view &value) {
-      if (value == "enabled"sv) return 1;
-      if (value == "disabled"sv) return 0;
+      if (value == "enabled"sv) {
+        return 1;
+      }
+      if (value == "disabled"sv) {
+        return 0;
+      }
       return std::nullopt;
     }
 
@@ -349,10 +353,18 @@ namespace config {
      * @return AMF latency enum value, or no value to preserve the driver default.
      */
     std::optional<int> av1_latency_from_view(const std::string_view &value) {
-      if (value == "none"sv) return 0;
-      if (value == "power_saving"sv) return 1;
-      if (value == "realtime"sv) return 2;
-      if (value == "lowest"sv) return 3;
+      if (value == "none"sv) {
+        return 0;
+      }
+      if (value == "power_saving"sv) {
+        return 1;
+      }
+      if (value == "realtime"sv) {
+        return 2;
+      }
+      if (value == "lowest"sv) {
+        return 3;
+      }
       return std::nullopt;
     }
 

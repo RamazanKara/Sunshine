@@ -99,12 +99,12 @@ namespace amf::lifecycle {
    * @param lookahead_depth Number of frames retained for future-frame analysis.
    * @return Bounded number of direct-render surfaces.
    */
-  inline constexpr std::size_t input_surface_count_for_pipeline(int input_queue_size,
-                                                                 int lookahead_depth) noexcept {
+  inline constexpr std::size_t input_surface_count_for_pipeline(int input_queue_size, int lookahead_depth) noexcept {
     const auto queue_depth = std::clamp<std::size_t>(
       static_cast<std::size_t>(std::max(1, input_queue_size)),
       1,
-      maximum_amf_input_queue_size);
+      maximum_amf_input_queue_size
+    );
     const auto queue_requirement = queue_depth + input_surface_transit_count;
     return std::max(queue_requirement, input_surface_count_for_lookahead(lookahead_depth));
   }
@@ -125,8 +125,7 @@ namespace amf::lifecycle {
    * @param explicit_preanalysis Explicit user setting.
    * @return Resolved PreAnalysis plan.
    */
-  inline preanalysis_plan_t resolve_preanalysis(const std::optional<int> &rate_control,
-                                                const std::optional<int> &explicit_preanalysis) noexcept {
+  inline preanalysis_plan_t resolve_preanalysis(const std::optional<int> &rate_control, const std::optional<int> &explicit_preanalysis) noexcept {
     const bool required_by_rate_control = rate_control && rate_control_requires_preanalysis(*rate_control);
     const bool explicitly_enabled = explicit_preanalysis && *explicit_preanalysis != 0;
     const bool enabled = required_by_rate_control || explicitly_enabled;
@@ -160,7 +159,8 @@ namespace amf::lifecycle {
     int lookahead_depth,
     ApplyRateControl &&apply_rate_control,
     ApplyPreanalysis &&apply_preanalysis,
-    ApplyLookahead &&apply_lookahead) {
+    ApplyLookahead &&apply_lookahead
+  ) {
     if (rate_control && !apply_rate_control(*rate_control)) {
       return false;
     }
@@ -193,10 +193,7 @@ namespace amf::lifecycle {
    * @param active_poll_waiters Number of encode-side polling leases.
    * @return True only when no newer submission, waiter, or drain needs polling.
    */
-  inline constexpr bool should_disarm_output_poll(uint64_t queried_through_input,
-                                                  uint64_t accepted_input_count,
-                                                  bool drain_requested,
-                                                  std::size_t active_poll_waiters) noexcept {
+  inline constexpr bool should_disarm_output_poll(uint64_t queried_through_input, uint64_t accepted_input_count, bool drain_requested, std::size_t active_poll_waiters) noexcept {
     // A no-data QueryOutput result only describes that call. It does not guarantee
     // that an already-submitted hardware job cannot complete a moment later. A
     // bounded encode-side waiter therefore owns a polling lease; disarming
@@ -220,7 +217,8 @@ namespace amf::lifecycle {
         frame_period - std::chrono::milliseconds(1) :
         std::chrono::milliseconds(1),
       std::chrono::milliseconds(1),
-      std::chrono::milliseconds(32));
+      std::chrono::milliseconds(32)
+    );
   }
 
   /**
@@ -236,7 +234,8 @@ namespace amf::lifecycle {
     int consecutive_exhaustions,
     int failure_threshold,
     bool sequence_start_known,
-    std::chrono::steady_clock::duration time_since_sequence_start) noexcept {
+    std::chrono::steady_clock::duration time_since_sequence_start
+  ) noexcept {
     return consecutive_exhaustions >= std::max(1, failure_threshold) ||
            (sequence_start_known && time_since_sequence_start >= std::chrono::seconds(2));
   }
@@ -251,11 +250,7 @@ namespace amf::lifecycle {
    * @param last_completed_frame_index Highest completed frame index.
    * @return True when the current frame completed, or any new PA output arrived.
    */
-  inline constexpr bool output_coalesce_target_reached(uint64_t submitted_frame_index,
-                                                        int lookahead_depth,
-                                                        uint64_t completed_before_submission,
-                                                        uint64_t completed_after_submission,
-                                                        uint64_t last_completed_frame_index) noexcept {
+  inline constexpr bool output_coalesce_target_reached(uint64_t submitted_frame_index, int lookahead_depth, uint64_t completed_before_submission, uint64_t completed_after_submission, uint64_t last_completed_frame_index) noexcept {
     // Without lookahead, accepting any older completion makes a one-frame backlog
     // permanent: every later call wakes on its predecessor and returns before its
     // own output is ready. Catch all the way up to this submission. A lookahead
@@ -279,8 +274,12 @@ namespace amf::lifecycle {
    * @return CABAC boolean, or no value to preserve the driver default.
    */
   inline std::optional<int> resolve_h264_cabac(int coder_mode) noexcept {
-    if (coder_mode == 1) return 1;  // CABAC
-    if (coder_mode == 2) return 0;  // CAVLC
+    if (coder_mode == 1) {
+      return 1;  // CABAC
+    }
+    if (coder_mode == 2) {
+      return 0;  // CAVLC
+    }
     return std::nullopt;  // auto: preserve the driver default
   }
 
@@ -300,7 +299,8 @@ namespace amf::lifecycle {
     const std::array<Slot, SlotCount> &slots,
     std::size_t source_slot,
     std::size_t next_slot,
-    std::size_t active_slot_count = SlotCount) noexcept {
+    std::size_t active_slot_count = SlotCount
+  ) noexcept {
     static_assert(SlotCount > 0);
     const auto bounded_slot_count = std::clamp<std::size_t>(active_slot_count, 1, SlotCount);
     if (source_slot >= bounded_slot_count) {
@@ -375,20 +375,7 @@ namespace amf::lifecycle {
    * @param flag_recovered_frame Callback that tags the accepted recovery frame.
    */
   template<std::size_t SlotCount, typename FlagRecoveredFrame>
-  void commit_recovery_state(bool input_accepted,
-                             int effective_slots,
-                             bool reset_cache,
-                             int slot_to_preserve,
-                             int slot_to_mark,
-                             int next_mark_slot,
-                             bool consume_pending_rfi,
-                             bool frame_after_rfi,
-                             uint64_t frame_index,
-                             std::array<bool, SlotCount> &slots_valid,
-                             std::array<uint64_t, SlotCount> &slot_frame_indices,
-                             int &current_mark_slot,
-                             bool &rfi_pending,
-                             FlagRecoveredFrame &&flag_recovered_frame) {
+  void commit_recovery_state(bool input_accepted, int effective_slots, bool reset_cache, int slot_to_preserve, int slot_to_mark, int next_mark_slot, bool consume_pending_rfi, bool frame_after_rfi, uint64_t frame_index, std::array<bool, SlotCount> &slots_valid, std::array<uint64_t, SlotCount> &slot_frame_indices, int &current_mark_slot, bool &rfi_pending, FlagRecoveredFrame &&flag_recovered_frame) {
     if (!input_accepted) {
       return;
     }
@@ -428,10 +415,7 @@ namespace amf::lifecycle {
    * @return Final submission result.
    */
   template<typename Submit, typename WaitForProgress, typename Retryable>
-  auto submit_with_bounded_retry(Submit &&submit,
-                                 WaitForProgress &&wait_for_progress,
-                                 Retryable &&retryable,
-                                 int max_retries) {
+  auto submit_with_bounded_retry(Submit &&submit, WaitForProgress &&wait_for_progress, Retryable &&retryable, int max_retries) {
     auto result = submit();
     for (int retry = 0; retry < max_retries && retryable(result); ++retry) {
       // A true result asks us to abort (fatal state/shutdown). The caller owns

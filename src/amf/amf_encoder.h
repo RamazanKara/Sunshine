@@ -6,7 +6,6 @@
 
 #include "amf_config.h"
 #include "amf_encoded_frame.h"
-
 #include "src/platform/common.h"
 #include "src/video.h"
 #include "src/video_colorspace.h"
@@ -34,16 +33,13 @@ namespace amf {
      * @return `true` on success, `false` on error
      */
     virtual bool
-    create_encoder(const amf_config &config,
-      const video::config_t &client_config,
-      const video::sunshine_colorspace_t &colorspace,
-      platf::pix_fmt_e buffer_format) = 0;
+      create_encoder(const amf_config &config, const video::config_t &client_config, const video::sunshine_colorspace_t &colorspace, platf::pix_fmt_e buffer_format) = 0;
 
     /**
      * @brief Destroy the encoder.
      */
     virtual void
-    destroy_encoder() = 0;
+      destroy_encoder() = 0;
 
     /**
      * @brief Encode the next frame using platform-specific input surface.
@@ -55,7 +51,7 @@ namespace amf {
      * @return Encoded frames in presentation order.
      */
     virtual amf_encode_result
-    encode_frame(uint64_t frame_index, bool force_idr) = 0;
+      encode_frame(uint64_t frame_index, bool force_idr) = 0;
 
     /**
      * @brief Wait for and return output from already accepted inputs without submitting another frame.
@@ -63,7 +59,7 @@ namespace amf {
      * @return Ready asynchronous frames and fatal state.
      */
     virtual amf_encode_result
-    drain_output(std::chrono::milliseconds timeout) = 0;
+      drain_output(std::chrono::milliseconds timeout) = 0;
 
     /**
      * @brief Tell AMF that no more input will be submitted and flush delayed output.
@@ -73,7 +69,7 @@ namespace amf {
      * primed with a future live frame.
      */
     virtual bool
-    begin_drain() = 0;
+      begin_drain() = 0;
 
     /**
      * @brief Perform reference frame invalidation (RFI).
@@ -82,7 +78,7 @@ namespace amf {
      * @return `true` on success, `false` on error (caller should force IDR).
      */
     virtual bool
-    invalidate_ref_frames(uint64_t first_frame, uint64_t last_frame) = 0;
+      invalidate_ref_frames(uint64_t first_frame, uint64_t last_frame) = 0;
 
     /**
      * @brief Set the bitrate for the encoder dynamically.
@@ -90,7 +86,7 @@ namespace amf {
      * @return `true` when every codec bitrate property was updated.
      */
     virtual bool
-    set_bitrate(int bitrate_kbps) = 0;
+      set_bitrate(int bitrate_kbps) = 0;
 
     /**
      * @brief Set HDR metadata for the encoder.
@@ -98,14 +94,14 @@ namespace amf {
      * @return `true` when the requested metadata state was applied.
      */
     virtual bool
-    set_hdr_metadata(const std::optional<amf_hdr_metadata> &metadata) = 0;
+      set_hdr_metadata(const std::optional<amf_hdr_metadata> &metadata) = 0;
 
     /**
      * @brief Get the D3D11 input texture the encoder reads from.
      * @return Pointer to ID3D11Texture2D, or nullptr.
      */
     virtual void *
-    get_input_texture() = 0;
+      get_input_texture() = 0;
   };
 
 }  // namespace amf

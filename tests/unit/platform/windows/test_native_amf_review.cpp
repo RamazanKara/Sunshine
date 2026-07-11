@@ -44,9 +44,14 @@ namespace {
         }
         return fake_amf_result_e::ok;
       },
-      []() { return false; },
-      [](fake_amf_result_e value) { return value == fake_amf_result_e::input_full; },
-      20);
+      []() {
+        return false;
+      },
+      [](fake_amf_result_e value) {
+        return value == fake_amf_result_e::input_full;
+      },
+      20
+    );
 
     std::lock_guard lock(state_mutex);
     const bool immediately_reusable = amf::lifecycle::on_input_accepted(slot, 7);
@@ -63,13 +68,18 @@ namespace {
     std::size_t submit_count = 0;
     int wait_count = 0;
     const auto result = amf::lifecycle::submit_with_bounded_retry(
-      [&]() { return responses.at(submit_count++); },
+      [&]() {
+        return responses.at(submit_count++);
+      },
       [&]() {
         ++wait_count;
         return false;
       },
-      [](fake_amf_result_e value) { return value == fake_amf_result_e::input_full; },
-      20);
+      [](fake_amf_result_e value) {
+        return value == fake_amf_result_e::input_full;
+      },
+      20
+    );
     return result == fake_amf_result_e::ok && submit_count == 3 && wait_count == 2;
   }
 
@@ -103,7 +113,10 @@ namespace {
         slot_frames,
         current_slot,
         rfi_pending,
-        [&](uint64_t frame_index) { flagged_frame = frame_index; });
+        [&](uint64_t frame_index) {
+          flagged_frame = frame_index;
+        }
+      );
     };
 
     commit(false);
@@ -138,7 +151,8 @@ namespace {
       [&](int depth) {
         property_order.push_back(300 + depth);
         return true;
-      });
+      }
+    );
 
     return !normal.enabled && normal.lookahead_depth == 0 &&
            !amf::lifecycle::rate_control_supports_adaptive_quantization(0) &&
@@ -161,7 +175,8 @@ namespace {
         pending.push_back(frame_index);
         if (!amf::lifecycle::delayed_output_is_expected(
               static_cast<int>(pending.size()),
-              lookahead_depth)) {
+              lookahead_depth
+            )) {
           return std::nullopt;
         }
         const auto output = pending.front();
@@ -209,7 +224,9 @@ namespace {
     slots[0].state = amf::lifecycle::input_surface_state_e::free;
     const auto reused = amf::lifecycle::select_repeat_surface(slots, 0, 2);
 
-    for (auto &slot : slots) slot.state = amf::lifecycle::input_surface_state_e::in_flight;
+    for (auto &slot : slots) {
+      slot.state = amf::lifecycle::input_surface_state_e::in_flight;
+    }
     const auto unavailable = amf::lifecycle::select_repeat_surface(slots, 0, 1);
     return rotated && *rotated == 1 && reused && *reused == 0 && !unavailable;
   }
@@ -293,6 +310,7 @@ namespace {
   bool teardown_timeout_returns_control_before_a_wedged_destructor() {
     struct slow_resource_t {
       std::atomic<bool> *destroyed;
+
       ~slow_resource_t() {
         std::this_thread::sleep_for(150ms);
         destroyed->store(true, std::memory_order_release);
@@ -304,8 +322,11 @@ namespace {
     resource->destroyed = &destroyed;
     const auto start = std::chrono::steady_clock::now();
     const bool completed = amf::lifecycle::run_with_timeout(
-      [resource = std::move(resource)]() mutable { resource.reset(); },
-      5ms);
+      [resource = std::move(resource)]() mutable {
+        resource.reset();
+      },
+      5ms
+    );
     const auto elapsed = std::chrono::steady_clock::now() - start;
 
     const auto cleanup_deadline = std::chrono::steady_clock::now() + 1s;

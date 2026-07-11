@@ -7,6 +7,10 @@
 #include "amf_encoder.h"
 #include "amf_lifecycle.h"
 
+#include <AMF/components/Component.h>
+#include <AMF/core/Context.h>
+#include <AMF/core/Data.h>
+#include <AMF/core/Factory.h>
 #include <array>
 #include <chrono>
 #include <condition_variable>
@@ -19,11 +23,6 @@
 #include <thread>
 #include <unordered_map>
 #include <wrl/client.h>
-
-#include <AMF/components/Component.h>
-#include <AMF/core/Context.h>
-#include <AMF/core/Data.h>
-#include <AMF/core/Factory.h>
 
 namespace amf {
 
@@ -45,34 +44,31 @@ namespace amf {
     ~amf_d3d11();
 
     bool
-    create_encoder(const amf_config &config,
-      const video::config_t &client_config,
-      const video::sunshine_colorspace_t &colorspace,
-      platf::pix_fmt_e buffer_format) override;
+      create_encoder(const amf_config &config, const video::config_t &client_config, const video::sunshine_colorspace_t &colorspace, platf::pix_fmt_e buffer_format) override;
 
     void
-    destroy_encoder() override;
+      destroy_encoder() override;
 
     amf_encode_result
-    encode_frame(uint64_t frame_index, bool force_idr) override;
+      encode_frame(uint64_t frame_index, bool force_idr) override;
 
     amf_encode_result
-    drain_output(std::chrono::milliseconds timeout) override;
+      drain_output(std::chrono::milliseconds timeout) override;
 
     bool
-    begin_drain() override;
+      begin_drain() override;
 
     bool
-    invalidate_ref_frames(uint64_t first_frame, uint64_t last_frame) override;
+      invalidate_ref_frames(uint64_t first_frame, uint64_t last_frame) override;
 
     bool
-    set_bitrate(int bitrate_kbps) override;
+      set_bitrate(int bitrate_kbps) override;
 
     bool
-    set_hdr_metadata(const std::optional<amf_hdr_metadata> &metadata) override;
+      set_hdr_metadata(const std::optional<amf_hdr_metadata> &metadata) override;
 
     void *
-    get_input_texture() override;
+      get_input_texture() override;
 
     /**
      * @brief Reserve a free native texture for the next conversion.
@@ -80,13 +76,13 @@ namespace amf {
      * @return Texture that the display converter may render into, or nullptr on backpressure.
      */
     ID3D11Texture2D *
-    acquire_input_texture_for_render();
+      acquire_input_texture_for_render();
 
     /**
      * @brief Cancel a texture reservation after conversion fails.
      */
     void
-    cancel_input_texture_for_render();
+      cancel_input_texture_for_render();
 
   private:
     /**
@@ -95,7 +91,7 @@ namespace amf {
      * @return True when the runtime is available.
      */
     bool
-    init_amf_library();
+      init_amf_library();
 
     /**
      * @brief Apply codec-independent and codec-specific AMF properties.
@@ -106,9 +102,7 @@ namespace amf {
      * @return True when all mandatory properties were accepted and verified.
      */
     bool
-    configure_encoder(const amf_config &config,
-      const video::config_t &client_config,
-      const video::sunshine_colorspace_t &colorspace);
+      configure_encoder(const amf_config &config, const video::config_t &client_config, const video::sunshine_colorspace_t &colorspace);
 
     /**
      * @brief Map Sunshine's input format to an AMF surface format.
@@ -126,7 +120,7 @@ namespace amf {
      * @return AMF component identifier.
      */
     const wchar_t *
-    get_codec_id();
+      get_codec_id();
 
     /**
      * @brief Copy one AMF output object into Sunshine-owned frame storage.
@@ -135,7 +129,7 @@ namespace amf {
      * @return Encoded frame and metadata.
      */
     amf_encoded_frame
-    extract_encoded_frame(const ::amf::AMFDataPtr &output_data);
+      extract_encoded_frame(const ::amf::AMFDataPtr &output_data);
 
     /**
      * @brief Retrieve asynchronous AMF output until stopped or drained.
@@ -143,7 +137,7 @@ namespace amf {
      * @param stop_token Cooperative stop token.
      */
     void
-    output_pump(std::stop_token stop_token) noexcept;
+      output_pump(std::stop_token stop_token) noexcept;
 
     /**
      * @brief Handle AMF releasing one input-surface slot.
@@ -151,7 +145,7 @@ namespace amf {
      * @param slot_index Released ring index.
      */
     void
-    on_input_surface_released(std::size_t slot_index) noexcept;
+      on_input_surface_released(std::size_t slot_index) noexcept;
 
     /**
      * @brief Lazily allocate direct-render surfaces up to the requested pool size.
@@ -160,7 +154,7 @@ namespace amf {
      * @return True when every requested slot is allocated.
      */
     bool
-    ensure_input_surface_count(std::size_t count);
+      ensure_input_surface_count(std::size_t count);
 
     ID3D11Device *device = nullptr;
     ::amf::AMFFactory *factory = nullptr;
@@ -181,9 +175,11 @@ namespace amf {
 
       void AMF_STD_CALL OnSurfaceDataRelease(::amf::AMFSurface *surface) override;
     };
+
     struct input_surface_slot_t: lifecycle::input_surface_state_t {
       Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
     };
+
     std::array<input_surface_slot_t, INPUT_SURFACE_RING_SIZE> input_surface_ring;
     std::array<input_surface_release_observer_t, INPUT_SURFACE_RING_SIZE> input_surface_release_observers;
     std::size_t active_input_surface_count = lifecycle::minimum_input_surface_count;  ///< Allocated pool prefix.
@@ -211,8 +207,8 @@ namespace amf {
     // sliding window of more recent anchors.
     static constexpr int MAX_LTR_SLOTS = 4;
     static constexpr uint64_t LTR_MARK_INTERVAL = 4;  // Mark LTR every N frames
-    int effective_ltr_slots = 0;    // Clamped to min(max_ltr_frames, MAX_LTR_SLOTS)
-    int current_ltr_slot = 0;      // Which LTR slot to mark next
+    int effective_ltr_slots = 0;  // Clamped to min(max_ltr_frames, MAX_LTR_SLOTS)
+    int current_ltr_slot = 0;  // Which LTR slot to mark next
     std::array<bool, MAX_LTR_SLOTS> ltr_slots_valid {};
     std::array<uint64_t, MAX_LTR_SLOTS> ltr_slot_frame_index {};  // Frame index when each LTR slot was marked
 
@@ -274,6 +270,6 @@ namespace amf {
    * @return AMF encoder or nullptr on failure.
    */
   std::unique_ptr<amf_d3d11>
-  create_amf_d3d11(ID3D11Device *d3d_device);
+    create_amf_d3d11(ID3D11Device *d3d_device);
 
 }  // namespace amf
