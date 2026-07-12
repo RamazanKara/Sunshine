@@ -6,7 +6,9 @@
 #include "amf_native.h"
 
 #include "src/config.h"
-#include "src/logging.h"
+#ifndef DOXYGEN
+  #include "src/logging.h"
+#endif
 #include "src/utility.h"
 
 #include <algorithm>

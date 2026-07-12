@@ -5,7 +5,9 @@
 
 #include "amf_d3d11.h"
 
-#include "src/logging.h"
+#ifndef DOXYGEN
+  #include "src/logging.h"
+#endif
 #include "src/utility.h"
 
 #include <AMF/core/Factory.h>
