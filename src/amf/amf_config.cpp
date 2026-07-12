@@ -7,7 +7,6 @@
 
 #include "amf_lifecycle.h"
 #include "src/config.h"
-#include "src/logging.h"
 #include "src/video.h"
 
 namespace amf {
@@ -41,10 +40,6 @@ namespace amf {
     result.preanalysis = preanalysis.enabled ? 1 : 0;
     if (preanalysis.enabled) {
       result.pa_lookahead_depth = preanalysis.lookahead_depth;
-      if (preanalysis.enabled_for_rate_control &&
-          (!config::video.amd.amd_preanalysis || !*config::video.amd.amd_preanalysis)) {
-        BOOST_LOG(info) << "AMF: enabling native PreAnalysis required by the selected rate-control mode";
-      }
     }
 
     result.max_ltr_frames = config::video.amd.amd_ltr_frames;
