@@ -1738,6 +1738,21 @@ namespace platf {
       }
 
       /**
+       * @brief Create a Vulkan-native AMF device for KMS DMA-BUF capture.
+       *
+       * @param pix_fmt Sunshine pixel format to convert into.
+       * @return Constructed native AMF encode device, or null when unavailable.
+       */
+      std::unique_ptr<amf_encode_device_t> make_amf_encode_device(pix_fmt_e pix_fmt) override {
+#if defined(SUNSHINE_BUILD_VULKAN) && defined(__linux__)
+        if (mem_type == mem_type_e::vulkan) {
+          return vk::make_amf_encode_device_vram(width, height, img_offset_x, img_offset_y, pix_fmt);
+        }
+#endif
+        return nullptr;
+      }
+
+      /**
        * @brief Allocate an image buffer compatible with this display backend.
        *
        * @return Allocated img object, or null when unavailable.

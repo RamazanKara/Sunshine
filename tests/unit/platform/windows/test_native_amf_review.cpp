@@ -207,6 +207,53 @@ namespace {
            amf::lifecycle::delayed_output_is_expected(1, 0);
   }
 
+  bool native_surface_binary_semaphore_handoff_is_balanced() {
+    bool submitted = false;
+    const bool first_wait = amf::lifecycle::prepare_native_surface_producer(submitted);
+    const bool first_signal = submitted;
+    amf::lifecycle::release_native_surface_consumer(submitted, true);
+    const bool reuse_wait = amf::lifecycle::prepare_native_surface_producer(submitted);
+    amf::lifecycle::cancel_native_surface_producer(submitted, reuse_wait);
+    const bool restored = submitted;
+    const bool copy_wait = amf::lifecycle::consume_native_surface_signal(submitted);
+    const bool consumed = !submitted;
+    return !first_wait && first_signal && reuse_wait && restored && copy_wait && consumed;
+  }
+
+  bool native_surface_release_race_does_not_resurrect_a_consumed_signal() {
+    bool submitted = true;
+    bool release_reconciled = false;
+    bool consumed_before_release = false;
+    amf::lifecycle::mark_native_surface_signal_consumed(
+      submitted,
+      release_reconciled,
+      consumed_before_release
+    );
+    amf::lifecycle::reconcile_native_surface_release(
+      submitted,
+      release_reconciled,
+      consumed_before_release,
+      true
+    );
+    const bool wait_won_race = !submitted && release_reconciled && !consumed_before_release;
+
+    submitted = true;
+    amf::lifecycle::begin_native_surface_consumer(release_reconciled, consumed_before_release);
+    amf::lifecycle::reconcile_native_surface_release(
+      submitted,
+      release_reconciled,
+      consumed_before_release,
+      true
+    );
+    amf::lifecycle::mark_native_surface_signal_consumed(
+      submitted,
+      release_reconciled,
+      consumed_before_release
+    );
+    const bool callback_won_race = !submitted && release_reconciled && !consumed_before_release;
+    return wait_won_race && callback_won_race;
+  }
+
   bool automatic_h264_coder_preserves_driver_default() {
     const auto automatic = amf::lifecycle::resolve_h264_cabac(0);
     const auto cabac = amf::lifecycle::resolve_h264_cabac(1);
@@ -347,6 +394,8 @@ int main() {
              recovery_state_changes_only_after_accepted_input() &&
              preanalysis_dependent_rate_control_is_planned_natively() &&
              preanalysis_pipeline_primes_and_drains_in_order() &&
+             native_surface_binary_semaphore_handoff_is_balanced() &&
+             native_surface_release_race_does_not_resurrect_a_consumed_signal() &&
              automatic_h264_coder_preserves_driver_default() &&
              repeated_input_rotates_away_from_a_lookahead_owned_surface() &&
              surface_pool_can_prime_a_retaining_driver() &&
@@ -381,6 +430,14 @@ TEST(NativeAmfReview, PreAnalysisDependentRateControlIsPlannedNatively) {
 
 TEST(NativeAmfReview, PreAnalysisPipelinePrimesAndDrainsInOrder) {
   EXPECT_TRUE(preanalysis_pipeline_primes_and_drains_in_order());
+}
+
+TEST(NativeAmfReview, NativeSurfaceBinarySemaphoreHandoffIsBalanced) {
+  EXPECT_TRUE(native_surface_binary_semaphore_handoff_is_balanced());
+}
+
+TEST(NativeAmfReview, NativeSurfaceReleaseRaceDoesNotResurrectConsumedSignal) {
+  EXPECT_TRUE(native_surface_release_race_does_not_resurrect_a_consumed_signal());
 }
 
 TEST(NativeAmfReview, AutomaticH264CoderPreservesDriverDefault) {

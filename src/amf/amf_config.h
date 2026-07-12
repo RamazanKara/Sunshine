@@ -7,6 +7,10 @@
 #include <cstdint>
 #include <optional>
 
+namespace video {
+  struct config_t;
+}
+
 namespace amf {
 
   /**
@@ -117,5 +121,14 @@ namespace amf {
     // values (4/8/16) as a workaround for driver freezes.
     std::optional<int> input_queue_size;  ///< AMF input queue override.
   };
+
+  /**
+   * @brief Translate Sunshine's AMD settings into platform-neutral AMF configuration.
+   *
+   * @param client_config Negotiated stream configuration.
+   * @return Native AMF settings shared by D3D11 and Vulkan adapters.
+   */
+  amf_config
+    make_amf_config(const video::config_t &client_config);
 
 }  // namespace amf

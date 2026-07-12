@@ -81,9 +81,12 @@ set(PLATFORM_TARGET_FILES
         # Native AMD AMF encoder. The SDK headers come from the prepared FFmpeg
         # dependency bundle; amfrt64.dll is resolved dynamically at runtime.
         "${CMAKE_SOURCE_DIR}/src/amf/amf_config.h"
+        "${CMAKE_SOURCE_DIR}/src/amf/amf_config.cpp"
         "${CMAKE_SOURCE_DIR}/src/amf/amf_encoded_frame.h"
         "${CMAKE_SOURCE_DIR}/src/amf/amf_encoder.h"
         "${CMAKE_SOURCE_DIR}/src/amf/amf_lifecycle.h"
+        "${CMAKE_SOURCE_DIR}/src/amf/amf_native.h"
+        "${CMAKE_SOURCE_DIR}/src/amf/amf_native.cpp"
         "${CMAKE_SOURCE_DIR}/src/amf/amf_d3d11.h"
         "${CMAKE_SOURCE_DIR}/src/amf/amf_d3d11.cpp"
         ${NVPREFS_FILES})

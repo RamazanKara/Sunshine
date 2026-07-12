@@ -155,6 +155,16 @@ if(${SUNSHINE_ENABLE_VULKAN})
     list(APPEND SUNSHINE_DEFINITIONS SUNSHINE_BUILD_VULKAN=1)
     include_directories(SYSTEM ${VULKAN_HEADERS_DIR})
     list(APPEND PLATFORM_LIBRARIES ${VULKAN_LIBRARY})
+    if(LINUX)
+        list(APPEND PLATFORM_TARGET_FILES
+            "${CMAKE_SOURCE_DIR}/src/amf/amf_config.h"
+            "${CMAKE_SOURCE_DIR}/src/amf/amf_config.cpp"
+            "${CMAKE_SOURCE_DIR}/src/amf/amf_encoded_frame.h"
+            "${CMAKE_SOURCE_DIR}/src/amf/amf_encoder.h"
+            "${CMAKE_SOURCE_DIR}/src/amf/amf_lifecycle.h"
+            "${CMAKE_SOURCE_DIR}/src/amf/amf_native.h"
+            "${CMAKE_SOURCE_DIR}/src/amf/amf_native.cpp")
+    endif()
     list(APPEND PLATFORM_TARGET_FILES
             "${CMAKE_SOURCE_DIR}/src/platform/linux/vulkan_encode.h"
             "${CMAKE_SOURCE_DIR}/src/platform/linux/vulkan_encode.cpp")

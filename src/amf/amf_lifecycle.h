@@ -81,6 +81,99 @@ namespace amf::lifecycle {
     maximum_amf_input_queue_size + input_surface_transit_count;  ///< Maximum lazily allocated pool.
 
   /**
+   * @brief Prepare a binary native-surface semaphore for a producer submission.
+   *
+   * @param submitted Whether the semaphore is signaled or scheduled to be signaled.
+   * @return True when the producer must first wait on a consumer signal.
+   */
+  inline bool prepare_native_surface_producer(bool &submitted) noexcept {
+    const bool wait_required = submitted;
+    submitted = true;
+    return wait_required;
+  }
+
+  /**
+   * @brief Restore semaphore state after a producer submission was cancelled.
+   *
+   * @param submitted Native-surface semaphore state.
+   * @param wait_required State observed before the cancelled producer was prepared.
+   */
+  inline void cancel_native_surface_producer(bool &submitted, bool wait_required) noexcept {
+    submitted = wait_required;
+  }
+
+  /**
+   * @brief Reconcile semaphore state returned by a native AMF consumer.
+   *
+   * @param submitted Native-surface semaphore state.
+   * @param consumer_submitted State reported by AMF on surface release.
+   */
+  inline void release_native_surface_consumer(bool &submitted, bool consumer_submitted) noexcept {
+    submitted = consumer_submitted;
+  }
+
+  /**
+   * @brief Consume a pending binary semaphore before a GPU copy re-signals it.
+   *
+   * @param submitted Native-surface semaphore state.
+   * @return True when a wait submission is required.
+   */
+  inline bool consume_native_surface_signal(bool &submitted) noexcept {
+    const bool wait_required = submitted;
+    submitted = false;
+    return wait_required;
+  }
+
+  /**
+   * @brief Start tracking one AMF consumer ownership cycle.
+   *
+   * @param release_reconciled Whether AMF's release callback has run.
+   * @param signal_consumed_before_release Whether another queue consumed AMF's returned signal first.
+   */
+  inline void begin_native_surface_consumer(
+    bool &release_reconciled,
+    bool &signal_consumed_before_release
+  ) noexcept {
+    release_reconciled = false;
+    signal_consumed_before_release = false;
+  }
+
+  /**
+   * @brief Record a queue wait that consumes AMF's returned binary signal.
+   *
+   * @param submitted Native-surface semaphore state.
+   * @param release_reconciled Whether AMF's release callback already ran.
+   * @param signal_consumed_before_release Tracks a wait queued before the callback.
+   */
+  inline void mark_native_surface_signal_consumed(
+    bool &submitted,
+    bool release_reconciled,
+    bool &signal_consumed_before_release
+  ) noexcept {
+    submitted = false;
+    signal_consumed_before_release = !release_reconciled;
+  }
+
+  /**
+   * @brief Reconcile an AMF release callback with a potentially racing queue wait.
+   *
+   * @param submitted Native-surface semaphore state.
+   * @param release_reconciled Whether AMF's release callback has run.
+   * @param signal_consumed_before_release Tracks a wait queued before the callback.
+   * @param consumer_submitted State reported by AMF on surface release.
+   */
+  inline void reconcile_native_surface_release(
+    bool &submitted,
+    bool &release_reconciled,
+    bool &signal_consumed_before_release,
+    bool consumer_submitted
+  ) noexcept {
+    release_reconciled = true;
+    const bool signal_already_consumed = std::exchange(signal_consumed_before_release, false);
+    release_native_surface_consumer(submitted, signal_already_consumed ? false : consumer_submitted);
+  }
+
+  /**
    * @brief Compute the minimum surface pool required by PreAnalysis lookahead.
    *
    * @param lookahead_depth Number of frames retained for future-frame analysis.

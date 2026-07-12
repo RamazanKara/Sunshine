@@ -1490,6 +1490,26 @@ namespace video {
   };
 
   #ifdef SUNSHINE_BUILD_VULKAN
+    #if defined(__linux__) || defined(linux) || defined(__linux)
+  /**
+   * @brief Native AMD AMF encoder using Vulkan DMA-BUF conversion on Linux.
+   */
+  encoder_t amdvce {
+    "amdvce"sv,
+    std::make_unique<encoder_platform_formats_amf>(
+      platf::mem_type_e::vulkan,
+      platf::pix_fmt_e::nv12,
+      platf::pix_fmt_e::p010,
+      platf::pix_fmt_e::unknown,
+      platf::pix_fmt_e::unknown
+    ),
+    {{}, {}, {}, {}, {}, {}, "av1_amf"s},
+    {{}, {}, {}, {}, {}, {}, "hevc_amf"s},
+    {{}, {}, {}, {}, {}, {}, "h264_amf"s},
+    PARALLEL_ENCODING | REF_FRAMES_INVALIDATION | ASYNC_TEARDOWN
+  };
+    #endif
+
   encoder_t vulkan {
     "vulkan"sv,
     std::make_unique<encoder_platform_formats_avcodec>(
@@ -1648,6 +1668,9 @@ namespace video {
 #endif
 #if defined(__linux__) || defined(linux) || defined(__linux) || defined(__FreeBSD__)
   #ifdef SUNSHINE_BUILD_VULKAN
+    #if defined(__linux__) || defined(linux) || defined(__linux)
+    &amdvce,
+    #endif
     &vulkan,
   #endif
     &vaapi,
@@ -1657,6 +1680,16 @@ namespace video {
 #endif
     &software
   };
+
+#if defined(_WIN32) || (defined(SUNSHINE_BUILD_VULKAN) && (defined(__linux__) || defined(linux) || defined(__linux)))
+  static encoder_t &native_amf_fallback_encoder() {
+  #ifdef _WIN32
+    return amdvce_legacy;
+  #else
+    return vulkan;
+  #endif
+  }
+#endif
 
   static encoder_t *chosen_encoder;
   int active_hevc_mode;  ///< HEVC mode selected by the most recent encoder probe.
@@ -2778,7 +2811,7 @@ namespace video {
    * @param reinit_event Signal raised while the encoder/display is reinitializing.
    * @param encoder Selected encoder.
    * @param channel_data Opaque channel data passed to packets.
-   * @return True when this stream should remain on legacy AMF after native failure.
+   * @return True when this stream should remain on its compatibility encoder after native AMF failure.
    */
   bool encode_run(
     int &frame_nr,  // Store progress of the frame number
@@ -2794,16 +2827,17 @@ namespace video {
     const encoder_t *session_encoder = &encoder;
     bool native_amf_init_fallback_used = false;
     auto session = make_encode_session(disp.get(), encoder, config, disp->width, disp->height, std::move(encode_device));
-#ifdef _WIN32
+#if defined(_WIN32) || (defined(SUNSHINE_BUILD_VULKAN) && (defined(__linux__) || defined(linux) || defined(__linux)))
     if (!session && &encoder == &amdvce && config::video.encoder.empty()) {
-      BOOST_LOG(warning) << "AMF: native session failed; retrying with amdvce_legacy"sv;
-      auto legacy_device = make_encode_device(*disp, amdvce_legacy, config);
-      if (legacy_device) {
-        session = make_encode_session(disp.get(), amdvce_legacy, config, disp->width, disp->height, std::move(legacy_device));
+      auto &fallback = native_amf_fallback_encoder();
+      BOOST_LOG(warning) << "AMF: native session failed; retrying with " << fallback.name;
+      auto fallback_device = make_encode_device(*disp, fallback, config);
+      if (fallback_device) {
+        session = make_encode_session(disp.get(), fallback, config, disp->width, disp->height, std::move(fallback_device));
         if (session) {
-          session_encoder = &amdvce_legacy;
+          session_encoder = &fallback;
           native_amf_init_fallback_used = true;
-          BOOST_LOG(info) << "AMF: real-session fallback to amdvce_legacy succeeded"sv;
+          BOOST_LOG(info) << "AMF: real-session fallback to " << fallback.name << " succeeded";
         }
       }
     }
@@ -3317,8 +3351,8 @@ namespace video {
     auto touch_port_event = mail->event<input::touch_port_t>(mail::touch_port);
     auto hdr_event = mail->event<hdr_info_t>(mail::hdr);
     auto idr_event = mail->event<bool>(mail::idr);
-#ifdef _WIN32
-    bool use_legacy_amf_for_remainder_of_session = false;
+#if defined(_WIN32) || (defined(SUNSHINE_BUILD_VULKAN) && (defined(__linux__) || defined(linux) || defined(__linux)))
+    bool use_amf_fallback_for_remainder_of_session = false;
 #endif
 
     // Encoding takes place on this thread
@@ -3342,9 +3376,9 @@ namespace video {
       }
 
       auto *enc_ptr = chosen_encoder;
-#ifdef _WIN32
-      if (use_legacy_amf_for_remainder_of_session && enc_ptr == &amdvce) {
-        enc_ptr = &amdvce_legacy;
+#if defined(_WIN32) || (defined(SUNSHINE_BUILD_VULKAN) && (defined(__linux__) || defined(linux) || defined(__linux)))
+      if (use_amf_fallback_for_remainder_of_session && enc_ptr == &amdvce) {
+        enc_ptr = &native_amf_fallback_encoder();
       }
 #endif
       if (!enc_ptr) {
@@ -3354,13 +3388,13 @@ namespace video {
       auto &encoder = *enc_ptr;
 
       auto encode_device = make_encode_device(*display, encoder, config);
-#ifdef _WIN32
+#if defined(_WIN32) || (defined(SUNSHINE_BUILD_VULKAN) && (defined(__linux__) || defined(linux) || defined(__linux)))
       if (!encode_device && &encoder == &amdvce && config::video.encoder.empty()) {
-        BOOST_LOG(warning) << "AMF: native device creation failed for the requested stream; retrying with amdvce_legacy"sv;
-        enc_ptr = &amdvce_legacy;
+        enc_ptr = &native_amf_fallback_encoder();
+        BOOST_LOG(warning) << "AMF: native device creation failed for the requested stream; retrying with " << enc_ptr->name;
         encode_device = make_encode_device(*display, *enc_ptr, config);
         if (encode_device) {
-          use_legacy_amf_for_remainder_of_session = true;
+          use_amf_fallback_for_remainder_of_session = true;
         }
       }
 #endif
@@ -3394,11 +3428,12 @@ namespace video {
         session_encoder,
         channel_data
       );
-#ifdef _WIN32
+#if defined(_WIN32) || (defined(SUNSHINE_BUILD_VULKAN) && (defined(__linux__) || defined(linux) || defined(__linux)))
       if (native_amf_runtime_failed && &session_encoder == &amdvce && config::video.encoder.empty()) {
-        use_legacy_amf_for_remainder_of_session = true;
+        use_amf_fallback_for_remainder_of_session = true;
         idr_event->raise(true);
-        BOOST_LOG(error) << "AMF: native runtime failed; switching this stream to amdvce_legacy"sv;
+        BOOST_LOG(error) << "AMF: native runtime failed; switching this stream to "
+                         << native_amf_fallback_encoder().name;
       }
 #endif
     }

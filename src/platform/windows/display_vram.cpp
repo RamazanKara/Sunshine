@@ -1409,60 +1409,13 @@ namespace platf::dxgi {
         return false;
       }
 
-      ::amf::amf_config amf_cfg;
+      auto amf_cfg = ::amf::make_amf_config(client_config);
       const auto active_encoder_count = g_active_native_amf_encoders.fetch_add(1, std::memory_order_acq_rel) + 1;
       registered_active_encoder = true;
       BOOST_LOG(info) << "AMF: creating native encoder session " << client_config.width << 'x'
                       << client_config.height << '@' << client_config.framerate
                       << " codec=" << client_config.videoFormat << " bitrate="
                       << client_config.bitrate << "kbps (active=" << active_encoder_count << ')';
-
-      if (client_config.videoFormat == 0) {
-        amf_cfg.usage = config::video.amd.amd_usage_h264;
-        amf_cfg.quality_preset = config::video.amd.amd_quality_h264;
-        amf_cfg.rc_mode = config::video.amd.amd_rc_h264;
-      } else if (client_config.videoFormat == 1) {
-        amf_cfg.usage = config::video.amd.amd_usage_hevc;
-        amf_cfg.quality_preset = config::video.amd.amd_quality_hevc;
-        amf_cfg.rc_mode = config::video.amd.amd_rc_hevc;
-      } else {
-        amf_cfg.usage = config::video.amd.amd_usage_av1;
-        amf_cfg.quality_preset = config::video.amd.amd_quality_av1;
-        amf_cfg.rc_mode = config::video.amd.amd_rc_av1;
-      }
-
-      amf_cfg.vbaq = config::video.amd.amd_vbaq;
-      amf_cfg.enforce_hrd = config::video.amd.amd_enforce_hrd;
-      amf_cfg.qvbr_quality_level = config::video.amd.amd_qvbr_quality_level;
-      amf_cfg.h264_cabac = ::amf::lifecycle::resolve_h264_cabac(config::video.amd.amd_coder);
-
-      const auto preanalysis_plan = ::amf::lifecycle::resolve_preanalysis(
-        amf_cfg.rc_mode,
-        config::video.amd.amd_preanalysis
-      );
-      amf_cfg.preanalysis = preanalysis_plan.enabled ? 1 : 0;
-      if (preanalysis_plan.enabled) {
-        amf_cfg.pa_lookahead_depth = preanalysis_plan.lookahead_depth;
-        if (preanalysis_plan.enabled_for_rate_control &&
-            (!config::video.amd.amd_preanalysis || !*config::video.amd.amd_preanalysis)) {
-          BOOST_LOG(info) << "AMF: enabling native PreAnalysis required by the selected rate-control mode";
-        }
-      }
-
-      amf_cfg.max_ltr_frames = config::video.amd.amd_ltr_frames;
-      if (config::video.amd.amd_input_queue_size > 0) {
-        amf_cfg.input_queue_size = config::video.amd.amd_input_queue_size;
-      }
-
-      auto amf_tristate = [](const std::optional<int> &value) -> std::optional<bool> {
-        return value ? std::optional<bool> {*value != 0} : std::nullopt;
-      };
-      amf_cfg.multi_hw_instance_encode = amf_tristate(config::video.amd.amd_smart_access_video);
-      amf_cfg.lowlatency_mode = amf_tristate(config::video.amd.amd_lowlatency_mode);
-      amf_cfg.high_motion_quality_boost_enable = amf_tristate(config::video.amd.amd_high_motion_quality_boost);
-      amf_cfg.av1_screen_content_tools = amf_tristate(config::video.amd.amd_av1_screen_content);
-      amf_cfg.av1_encoding_latency_mode = config::video.amd.amd_av1_latency_mode;
-      amf_cfg.enable_statistics_feedback = false;
 
       if (active_encoder_count > 1 &&
           ((amf_cfg.lowlatency_mode && *amf_cfg.lowlatency_mode) ||

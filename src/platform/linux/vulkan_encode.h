@@ -38,6 +38,21 @@ namespace vk {
    */
   std::unique_ptr<platf::avcodec_encode_device_t> make_avcodec_encode_device_vram(int width, int height, int offset_x, int offset_y);
 
+#if defined(__linux__)
+  /**
+   * @brief Create a Vulkan-native AMF encode device for DMA-BUF capture.
+   *
+   * @param width Capture width in pixels.
+   * @param height Capture height in pixels.
+   * @param offset_x Capture-region x offset.
+   * @param offset_y Capture-region y offset.
+   * @param format Native encoder input format.
+   * @return Constructed native AMF device.
+   */
+  std::unique_ptr<platf::amf_encode_device_t>
+    make_amf_encode_device_vram(int width, int height, int offset_x, int offset_y, platf::pix_fmt_e format);
+#endif
+
   /**
    * @brief Check if FFmpeg Vulkan Video encoding is available.
    *

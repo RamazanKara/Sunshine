@@ -1055,6 +1055,21 @@ namespace pipewire {
     }
 
     /**
+     * @brief Create a Vulkan-native AMF device for PipeWire DMA-BUF capture.
+     *
+     * @param pix_fmt Sunshine pixel format to convert into.
+     * @return Constructed native AMF encode device, or null when unavailable.
+     */
+    std::unique_ptr<platf::amf_encode_device_t> make_amf_encode_device(platf::pix_fmt_e pix_fmt) override {
+#if defined(SUNSHINE_BUILD_VULKAN) && defined(__linux__)
+      if (mem_type == platf::mem_type_e::vulkan && n_dmabuf_infos > 0) {
+        return vk::make_amf_encode_device_vram(width, height, 0, 0, pix_fmt);
+      }
+#endif
+      return nullptr;
+    }
+
+    /**
      * @brief Populate a fallback image when real capture data is unavailable.
      *
      * @param img Image or frame object to read from or populate.
