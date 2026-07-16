@@ -576,6 +576,14 @@ namespace platf::dxgi {
      */
     std::unique_ptr<nvenc_encode_device_t> make_nvenc_encode_device(pix_fmt_e pix_fmt) override;
 
+    /**
+     * @brief Create native AMF encode device.
+     *
+     * @param pix_fmt Sunshine pixel format to convert or allocate for.
+     * @return Constructed native AMF encode device object.
+     */
+    std::unique_ptr<amf_encode_device_t> make_amf_encode_device(pix_fmt_e pix_fmt) override;
+
     std::atomic<uint32_t> next_image_id;  ///< Next image ID.
   };
 
